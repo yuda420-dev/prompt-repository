@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
+import { arrayMove, SortableContext, useSortable, rectSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const defaultArtworks = [
   { id: 1, title: "Ethereal Dreams", artist: "HiPeR Gallery", style: "Abstract Expressionism", category: "abstract", description: "A mesmerizing exploration of color and form, where dreams meet reality in an ethereal dance of light.", image: "https://images.unsplash.com/photo-1541961017774-22349e4a1262?w=800&h=800&fit=crop", isDefault: true },
@@ -135,6 +138,31 @@ const generateTitle = (answers) => {
   return titlePatterns[Math.floor(Math.random() * titlePatterns.length)];
 };
 
+// Sortable wrapper component for artwork cards
+function SortableArtworkCard({ id, children, disabled }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 1000 : 'auto',
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
+
 export default function ArtGallery() {
   // Auth state
   const [user, setUser] = useState(null);
@@ -171,6 +199,19 @@ export default function ArtGallery() {
   // Analytics state
   const [showAnalytics, setShowAnalytics] = useState(false);
 
+  // Drag and drop state
+  const [activeId, setActiveId] = useState(null);
+  const [customOrder, setCustomOrder] = useState(null); // Custom order for artworks (null = use default)
+
+  // Configure sensors for drag and drop
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px movement before drag starts
+      },
+    })
+  );
+
   // Upload questionnaire state
   const [pendingUploads, setPendingUploads] = useState([]);
   const [currentUploadIndex, setCurrentUploadIndex] = useState(0);
@@ -184,7 +225,7 @@ export default function ArtGallery() {
   });
   const [generatedTitle, setGeneratedTitle] = useState('');
   const [generatedDescription, setGeneratedDescription] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('abstract');
+  const [selectedCategories, setSelectedCategories] = useState(['abstract']);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [customTitle, setCustomTitle] = useState('');
   const [customDescription, setCustomDescription] = useState('');
@@ -859,6 +900,57 @@ export default function ArtGallery() {
 
   const galleryItems = getGalleryItems();
 
+  // Apply custom order if set
+  const orderedGalleryItems = customOrder
+    ? customOrder.map(id => galleryItems.find(item => (item.type === 'series' ? `series-${item.name}` : item.id) === id)).filter(Boolean)
+    : galleryItems;
+
+  // Drag and drop handlers
+  const handleDragStart = (event) => {
+    setActiveId(event.active.id);
+  };
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    setActiveId(null);
+
+    if (over && active.id !== over.id) {
+      const getItemId = (item) => item.type === 'series' ? `series-${item.name}` : item.id;
+      const oldIndex = orderedGalleryItems.findIndex(item => getItemId(item) === active.id);
+      const newIndex = orderedGalleryItems.findIndex(item => getItemId(item) === over.id);
+
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newOrder = arrayMove(orderedGalleryItems.map(getItemId), oldIndex, newIndex);
+        setCustomOrder(newOrder);
+        // Save to localStorage
+        localStorage.setItem('hiperGalleryOrder', JSON.stringify(newOrder));
+        showToastMessage('Gallery order updated');
+      }
+    }
+  };
+
+  // Load custom order from localStorage
+  useEffect(() => {
+    const savedOrder = localStorage.getItem('hiperGalleryOrder');
+    if (savedOrder) {
+      try {
+        setCustomOrder(JSON.parse(savedOrder));
+      } catch (e) {
+        console.error('Error loading custom order:', e);
+      }
+    }
+  }, []);
+
+  // Get unique IDs for sortable context
+  const sortableIds = orderedGalleryItems.map(item =>
+    item.type === 'series' ? `series-${item.name}` : item.id
+  );
+
+  // Find active item for drag overlay
+  const activeItem = activeId ? orderedGalleryItems.find(item =>
+    (item.type === 'series' ? `series-${item.name}` : item.id) === activeId
+  ) : null;
+
   // Open a series folder
   const openSeriesFolder = (series) => {
     setOpenSeries(series);
@@ -922,7 +1014,7 @@ export default function ArtGallery() {
       setAnswers({ mood: '', theme: '', style: '', inspiration: '', message: '' });
       setGeneratedTitle('');
       setGeneratedDescription('');
-      setSelectedCategory('abstract');
+      setSelectedCategories(['abstract']);
       // Reset series state
       setIsSeriesMode(false);
       setSeriesStep(uploads.length > 1 ? 0 : -1); // Show mode selection only for multiple images
@@ -1065,7 +1157,8 @@ export default function ArtGallery() {
       title: generatedTitle,
       artist: user?.email?.split('@')[0] || 'Artist',
       style: `${answers.style} / ${answers.mood}`,
-      category: selectedCategory,
+      category: selectedCategories[0] || 'abstract',
+      categories: selectedCategories,
       description: generatedDescription,
       image: currentUpload.preview,
       isNew: true
@@ -1085,7 +1178,7 @@ export default function ArtGallery() {
       setAnswers({ mood: '', theme: '', style: '', inspiration: '', message: '' });
       setGeneratedTitle('');
       setGeneratedDescription('');
-      setSelectedCategory('abstract');
+      setSelectedCategories(['abstract']);
       setCustomTitle('');
       setCustomDescription('');
       setUseCustomDescription(false);
@@ -1136,9 +1229,11 @@ export default function ArtGallery() {
   };
 
   const openEditModal = (art, e) => {
-    e.stopPropagation();
-    if (!user || art.isDefault) return;
-    setEditingArt({ ...art });
+    if (e) e.stopPropagation();
+    if (!user) return;
+    // Only admin can edit default artworks
+    if (art.isDefault && getUserRole(user) !== USER_ROLES.ADMIN) return;
+    setEditingArt({ ...art, categories: art.categories || [art.category] });
     setSelectedArt(null);
     setTimeout(() => setIsModalOpen(true), 10);
   };
@@ -1157,30 +1252,46 @@ export default function ArtGallery() {
       return;
     }
 
+    // Use primary category (first in array) or fallback
+    const primaryCategory = editingArt.categories?.[0] || editingArt.category || 'abstract';
+    const updatedArt = {
+      ...editingArt,
+      category: primaryCategory,
+      categories: editingArt.categories || [primaryCategory],
+    };
+
     if (isSupabaseConfigured() && user) {
       try {
-        await supabase
+        const isUserAdmin = getUserRole(user) === USER_ROLES.ADMIN;
+        let query = supabase
           .from('artworks')
           .update({
-            title: editingArt.title,
-            description: editingArt.description,
-            category: editingArt.category,
+            title: updatedArt.title,
+            description: updatedArt.description,
+            category: primaryCategory,
+            series_name: updatedArt.seriesName || null,
           })
-          .eq('id', editingArt.id)
-          .eq('user_id', user.id);
+          .eq('id', updatedArt.id);
+
+        // Admin can update any artwork, others only their own
+        if (!isUserAdmin) {
+          query = query.eq('user_id', user.id);
+        }
+
+        await query;
       } catch (err) {
         console.error('Error updating artwork:', err);
       }
     } else {
       // Update localStorage
       const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
-      const updated = savedArtworks.map(a => a.id === editingArt.id ? editingArt : a);
+      const updated = savedArtworks.map(a => a.id === updatedArt.id ? updatedArt : a);
       localStorage.setItem('hiperGalleryArtworks', JSON.stringify(updated));
     }
 
     setArtworks(prev => prev.map(a =>
-      a.id === editingArt.id
-        ? { ...editingArt, isNew: false }
+      a.id === updatedArt.id
+        ? { ...updatedArt, isNew: false }
         : a
     ));
     showToastMessage('Artwork updated');
@@ -1552,35 +1663,46 @@ export default function ArtGallery() {
       {/* Gallery Grid */}
       <main className="px-6 lg:px-8 pb-32">
         <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-            {/* Upload Card - only show for users with upload permission (Admin/Artist) */}
-            {canUpload(user) && (
-              <article
-                onClick={() => fileInputRef.current?.click()}
-                className="group relative bg-gradient-to-br from-white/[0.03] to-transparent rounded-3xl overflow-hidden border border-dashed border-white/10 hover:border-amber-500/40 cursor-pointer transition-all duration-500 hover:shadow-2xl hover:shadow-amber-500/5"
-              >
-                <div className="aspect-[4/5] flex flex-col items-center justify-center p-8">
-                  <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mb-6 group-hover:bg-amber-500/10 group-hover:scale-110 transition-all duration-500">
-                    <svg className="w-8 h-8 text-white/30 group-hover:text-amber-400 transition-colors duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
-                    </svg>
-                  </div>
-                  <span className="text-lg font-medium text-white/50 group-hover:text-white/80 transition-colors duration-300">Upload Artworks</span>
-                  <span className="text-sm text-white/30 mt-2">We'll help you craft the perfect description</span>
-                </div>
-              </article>
-            )}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+                {/* Upload Card - only show for users with upload permission (Admin/Artist) */}
+                {canUpload(user) && (
+                  <article
+                    onClick={() => fileInputRef.current?.click()}
+                    className="group relative bg-gradient-to-br from-white/[0.03] to-transparent rounded-3xl overflow-hidden border border-dashed border-white/10 hover:border-amber-500/40 cursor-pointer transition-all duration-500 hover:shadow-2xl hover:shadow-amber-500/5"
+                  >
+                    <div className="aspect-[4/5] flex flex-col items-center justify-center p-8">
+                      <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mb-6 group-hover:bg-amber-500/10 group-hover:scale-110 transition-all duration-500">
+                        <svg className="w-8 h-8 text-white/30 group-hover:text-amber-400 transition-colors duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                        </svg>
+                      </div>
+                      <span className="text-lg font-medium text-white/50 group-hover:text-white/80 transition-colors duration-300">Upload Artworks</span>
+                      <span className="text-sm text-white/30 mt-2">We'll help you craft the perfect description</span>
+                    </div>
+                  </article>
+                )}
 
-            {/* Gallery Items - Series Folders & Standalone Artworks */}
-            {galleryItems.map((item, index) => (
-              item.type === 'series' ? (
-                // Series Card - Stacked Deck Style (fan of cards)
-                <article
-                  key={`series-${item.name}`}
-                  onClick={() => openSeriesFolder(item)}
-                  className="group relative cursor-pointer transition-all duration-500"
-                  style={{ animationDelay: `${index * 100}ms` }}
-                >
+                {/* Gallery Items - Series Folders & Standalone Artworks */}
+                {orderedGalleryItems.map((item, index) => (
+                  <SortableArtworkCard
+                    key={item.type === 'series' ? `series-${item.name}` : item.id}
+                    id={item.type === 'series' ? `series-${item.name}` : item.id}
+                    disabled={!user || getUserRole(user) !== USER_ROLES.ADMIN}
+                  >
+                    {item.type === 'series' ? (
+                      // Series Card - Stacked Deck Style (fan of cards)
+                      <article
+                        onClick={() => openSeriesFolder(item)}
+                        className="group relative cursor-pointer transition-all duration-500"
+                        style={{ animationDelay: `${index * 100}ms` }}
+                      >
                   <div className="aspect-[4/5] relative pt-3 pl-3">
                     {/* Background cards - fanned out for deck effect */}
                     {item.artworks.length > 2 && item.artworks[2] && (
@@ -1674,15 +1796,14 @@ export default function ArtGallery() {
                       </div>
                     </div>
                   </div>
-                </article>
-              ) : (
-                // Regular Artwork Card
-                <article
-                  key={item.id}
-                  onClick={() => openArtDetail(item)}
-                  className={`group relative bg-[#111113] rounded-3xl overflow-hidden cursor-pointer transition-all duration-500 hover:shadow-2xl hover:shadow-black/50 ${item.isNew ? 'ring-2 ring-amber-500/50' : ''}`}
-                  style={{ animationDelay: `${index * 100}ms` }}
-                >
+                      </article>
+                    ) : (
+                      // Regular Artwork Card
+                      <article
+                        onClick={() => openArtDetail(item)}
+                        className={`group relative bg-[#111113] rounded-3xl overflow-hidden cursor-pointer transition-all duration-500 hover:shadow-2xl hover:shadow-black/50 ${item.isNew ? 'ring-2 ring-amber-500/50' : ''}`}
+                        style={{ animationDelay: `${index * 100}ms` }}
+                      >
                   {/* New badge */}
                   {item.isNew && (
                     <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-amber-500 text-[#0a0a0b] text-xs font-bold rounded-full">
@@ -1763,10 +1884,13 @@ export default function ArtGallery() {
                       </div>
                     </div>
                   </div>
-                </article>
-              )
-            ))}
-          </div>
+                      </article>
+                    )}
+                  </SortableArtworkCard>
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
 
           {/* "Sign in to see more" prompt */}
           {hasMoreArtworks && (
@@ -2674,21 +2798,33 @@ export default function ArtGallery() {
                       </div>
 
                       <div>
-                        <label className="block text-sm text-white/50 mb-2">Category</label>
+                        <label className="block text-sm text-white/50 mb-2">Categories <span className="text-white/30">(select multiple)</span></label>
                         <div className="flex flex-wrap gap-2">
-                          {categories.map(cat => (
-                            <button
-                              key={cat}
-                              onClick={() => setSelectedCategory(cat)}
-                              className={`px-4 py-2 rounded-full text-sm transition-all duration-300 ${
-                                selectedCategory === cat
-                                  ? 'bg-amber-500 text-[#0a0a0b] font-medium'
-                                  : 'bg-white/5 text-white/50 hover:bg-white/10 border border-white/10'
-                              }`}
-                            >
-                              {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                            </button>
-                          ))}
+                          {categories.map(cat => {
+                            const isSelected = selectedCategories.includes(cat);
+                            return (
+                              <button
+                                key={cat}
+                                onClick={() => {
+                                  if (isSelected) {
+                                    // Don't allow removing last category
+                                    if (selectedCategories.length > 1) {
+                                      setSelectedCategories(prev => prev.filter(c => c !== cat));
+                                    }
+                                  } else {
+                                    setSelectedCategories(prev => [...prev, cat]);
+                                  }
+                                }}
+                                className={`px-4 py-2 rounded-full text-sm transition-all duration-300 ${
+                                  isSelected
+                                    ? 'bg-amber-500 text-[#0a0a0b] font-medium'
+                                    : 'bg-white/5 text-white/50 hover:bg-white/10 border border-white/10'
+                                }`}
+                              >
+                                {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
@@ -3083,22 +3219,84 @@ export default function ArtGallery() {
                   </div>
 
                   <div>
-                    <label className="block text-sm text-white/50 mb-3">Category</label>
+                    <label className="block text-sm text-white/50 mb-2">Categories <span className="text-white/30">(select multiple)</span></label>
                     <div className="flex flex-wrap gap-2">
-                      {categories.map(cat => (
+                      {categories.map(cat => {
+                        const isSelected = editingArt.categories?.includes(cat);
+                        return (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => {
+                              const currentCats = editingArt.categories || [editingArt.category];
+                              let newCats;
+                              if (isSelected) {
+                                // Don't allow removing last category
+                                if (currentCats.length > 1) {
+                                  newCats = currentCats.filter(c => c !== cat);
+                                } else {
+                                  return;
+                                }
+                              } else {
+                                newCats = [...currentCats, cat];
+                              }
+                              setEditingArt({ ...editingArt, categories: newCats, category: newCats[0] });
+                            }}
+                            className={`px-4 py-2 rounded-full text-sm transition-all duration-300 ${
+                              isSelected
+                                ? 'bg-amber-500 text-[#0a0a0b] font-medium'
+                                : 'bg-white/5 text-white/50 hover:bg-white/10 border border-white/10'
+                            }`}
+                          >
+                            {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Series Assignment */}
+                  <div>
+                    <label className="block text-sm text-white/50 mb-2">Series</label>
+                    <div className="space-y-2">
+                      {/* Existing series dropdown */}
+                      <select
+                        value={editingArt.seriesName || ''}
+                        onChange={(e) => setEditingArt({ ...editingArt, seriesName: e.target.value || null })}
+                        className="w-full px-5 py-4 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none transition-all text-white"
+                      >
+                        <option value="">No series (standalone)</option>
+                        {[...new Set(artworks.filter(a => a.seriesName).map(a => a.seriesName))].map(name => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                      {/* Create new series option */}
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Or create new series..."
+                          className="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none transition-all placeholder:text-white/20 text-sm"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.target.value.trim()) {
+                              setEditingArt({ ...editingArt, seriesName: e.target.value.trim() });
+                              e.target.value = '';
+                            }
+                          }}
+                        />
                         <button
-                          key={cat}
                           type="button"
-                          onClick={() => setEditingArt({ ...editingArt, category: cat })}
-                          className={`px-4 py-2 rounded-full text-sm transition-all duration-300 ${
-                            editingArt.category === cat
-                              ? 'bg-amber-500 text-[#0a0a0b] font-medium'
-                              : 'bg-white/5 text-white/50 hover:bg-white/10 border border-white/10'
-                          }`}
+                          onClick={(e) => {
+                            const input = e.target.previousSibling;
+                            if (input.value.trim()) {
+                              setEditingArt({ ...editingArt, seriesName: input.value.trim() });
+                              input.value = '';
+                            }
+                          }}
+                          className="px-4 py-3 rounded-xl bg-amber-500/20 text-amber-400 text-sm font-medium hover:bg-amber-500/30 transition-all"
                         >
-                          {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                          Add
                         </button>
-                      ))}
+                      </div>
                     </div>
                   </div>
 
