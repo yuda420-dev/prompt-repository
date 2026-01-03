@@ -42,18 +42,25 @@ const ROLE_LABELS = {
   viewer: 'Viewer',
 };
 
-// Permission helpers
-const canUpload = (user) => user && (user.role === USER_ROLES.ADMIN || user.role === USER_ROLES.ARTIST);
+// Permission helpers - get role from Supabase user_metadata or direct property
+const getUserRole = (user) => user?.user_metadata?.role || user?.role || USER_ROLES.ARTIST;
+const canUpload = (user) => {
+  if (!user) return false;
+  const role = getUserRole(user);
+  return role === USER_ROLES.ADMIN || role === USER_ROLES.ARTIST;
+};
 const canEdit = (user, artwork) => {
   if (!user) return false;
-  if (user.role === USER_ROLES.ADMIN) return true;
-  if (user.role === USER_ROLES.ARTIST && artwork.userId === user.id) return true;
+  const role = getUserRole(user);
+  if (role === USER_ROLES.ADMIN) return true;
+  if (role === USER_ROLES.ARTIST && artwork.userId === user.id) return true;
   return false;
 };
 const canDelete = (user, artwork) => {
   if (!user) return false;
-  if (user.role === USER_ROLES.ADMIN) return true;
-  if (user.role === USER_ROLES.ARTIST && artwork.userId === user.id) return true;
+  const role = getUserRole(user);
+  if (role === USER_ROLES.ADMIN) return true;
+  if (role === USER_ROLES.ARTIST && artwork.userId === user.id) return true;
   return false;
 };
 const isAdmin = (user) => user && user.role === USER_ROLES.ADMIN;
