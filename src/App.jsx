@@ -83,56 +83,107 @@ const styleOptions = ['Abstract', 'Realistic', 'Surreal', 'Minimalist', 'Express
 // Preview limit for non-logged in users
 const PREVIEW_LIMIT = 3;
 
-// Fun description generator based on answers
+// Enhanced description generator with more variety and poetic language
 const generateDescription = (answers) => {
   const { mood, theme, style, inspiration, message } = answers;
+  const m = mood?.toLowerCase() || 'contemplative';
+  const t = theme?.toLowerCase() || 'beauty';
+  const s = style?.toLowerCase() || 'expressive';
 
+  // Mood-specific vocabulary
+  const moodWords = {
+    peaceful: ['serene', 'tranquil', 'gentle', 'calm', 'still'],
+    energetic: ['vibrant', 'dynamic', 'pulsing', 'alive', 'electric'],
+    mysterious: ['enigmatic', 'veiled', 'shadowed', 'hidden', 'cryptic'],
+    joyful: ['radiant', 'bright', 'luminous', 'warm', 'celebratory'],
+    melancholic: ['wistful', 'tender', 'haunting', 'bittersweet', 'soft'],
+    dramatic: ['bold', 'striking', 'powerful', 'intense', 'commanding'],
+    playful: ['whimsical', 'spirited', 'dancing', 'light', 'free'],
+    contemplative: ['thoughtful', 'reflective', 'quiet', 'deep', 'meditative'],
+  };
+
+  const getRandomWord = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const moodAdjectives = moodWords[m] || moodWords.contemplative;
+  const adj1 = getRandomWord(moodAdjectives);
+  const adj2 = getRandomWord(moodAdjectives.filter(w => w !== adj1));
+
+  // Opening variations that feel more natural
   const openers = [
-    `A ${mood.toLowerCase()} exploration of ${theme.toLowerCase()}`,
-    `This ${style.toLowerCase()} piece captures the essence of ${theme.toLowerCase()}`,
-    `Diving deep into ${theme.toLowerCase()}, this work radiates ${mood.toLowerCase()} energy`,
-    `Where ${mood.toLowerCase()} meets ${theme.toLowerCase()}`,
+    `This ${s} piece draws the viewer into a ${adj1} meditation on ${t}`,
+    `A ${adj1} exploration of ${t}, rendered through ${s} visual language`,
+    `${t.charAt(0).toUpperCase() + t.slice(1)} takes form in this ${adj1} composition`,
+    `Through layers of ${adj1} imagery, this work explores the nature of ${t}`,
+    `The artist captures ${t} in its most ${adj1} form`,
+    `A ${adj2} dialogue between ${m} emotion and ${t}`,
+    `Here, ${t} unfolds with ${adj1} grace through ${s} expression`,
   ];
 
+  // Middle sentences that add depth
   const middles = [
-    `through bold ${style.toLowerCase()} expression`,
-    `with stunning visual harmony`,
-    `in a dance of color and form`,
-    `creating an unforgettable visual journey`,
+    `The composition balances tension and release, creating visual poetry that speaks without words.`,
+    `Every element serves the whole, building toward a moment of ${adj2} revelation.`,
+    `Color and form interweave, each stroke carrying the weight of intention.`,
+    `The work breathes with an internal rhythm that pulls viewers deeper into its world.`,
+    `Surface and depth play against each other, revealing new dimensions with each viewing.`,
+    `The piece holds space for both movement and stillness, finding harmony in their dance.`,
+    `Light becomes a character here, shaping mood and meaning through subtle gradations.`,
   ];
 
-  const endings = inspiration ? [
-    `Inspired by ${inspiration}, it invites viewers to ${message || 'discover their own meaning'}.`,
-    `Drawing from ${inspiration}, this piece asks us to ${message || 'pause and reflect'}.`,
-    `With echoes of ${inspiration}, it speaks to ${message || 'the depths of human experience'}.`,
+  // Endings that incorporate inspiration and message
+  const endingsWithInspiration = inspiration ? [
+    `Drawing inspiration from ${inspiration}, the artist invites us to ${message || 'see the world anew'}.`,
+    `With ${inspiration} as a touchstone, the work asks: ${message || 'what does this moment mean to you'}?`,
+    `Echoes of ${inspiration} resonate throughout, ultimately speaking to ${message || 'our shared experience of being'}.`,
+    `The influence of ${inspiration} is felt in every choice, leading us toward ${message || 'a deeper understanding'}.`,
   ] : [
-    `It invites viewers to ${message || 'discover their own meaning within its depths'}.`,
-    `A piece that asks us to ${message || 'pause, breathe, and simply feel'}.`,
-    `Speaking directly to ${message || 'the soul of those who dare to look closely'}.`,
+    `The work invites viewers to ${message || 'pause and let meaning emerge on its own terms'}.`,
+    `Ultimately, it asks us to ${message || 'trust our own response to what we see'}.`,
+    `This is art that rewards attention, ${message || 'offering new insights with each encounter'}.`,
+    `It speaks to ${message || 'something universal yet deeply personal in the human experience'}.`,
   ];
 
-  const opener = openers[Math.floor(Math.random() * openers.length)];
-  const middle = middles[Math.floor(Math.random() * middles.length)];
-  const ending = endings[Math.floor(Math.random() * endings.length)];
+  const opener = getRandomWord(openers);
+  const middle = getRandomWord(middles);
+  const ending = getRandomWord(endingsWithInspiration);
 
-  return `${opener} ${middle}. ${ending}`;
+  return `${opener}. ${middle} ${ending}`;
 };
 
-// Fun title generator based on answers
+// Enhanced title generator with more creative patterns
 const generateTitle = (answers) => {
   const { mood, theme, style } = answers;
+  const m = mood || 'Ethereal';
+  const t = theme || 'Dreams';
+  const s = style || 'Abstract';
 
+  // More poetic and varied title patterns
   const titlePatterns = [
-    `${mood} ${theme}`,
-    `The ${mood} ${theme}`,
-    `${theme} in ${mood}`,
-    `${style} ${theme}`,
-    `Whispers of ${theme}`,
-    `${mood} Dreams`,
-    `The ${theme} Within`,
-    `${theme}'s Echo`,
-    `Beyond ${theme}`,
-    `${mood} Horizons`,
+    // Simple poetic
+    `${m} ${t}`,
+    `The ${m} Hour`,
+    `${t} Ascending`,
+    `Where ${t} Lives`,
+    // Evocative phrases
+    `Whispers of ${t}`,
+    `${m} Reverie`,
+    `The Weight of ${t}`,
+    `${t} in Motion`,
+    // Roman numeral series style
+    `Study in ${m}`,
+    `${t}, Unfolding`,
+    // Abstract/conceptual
+    `After ${m}`,
+    `Before ${t}`,
+    `${s} Meditation`,
+    // Poetic compounds
+    `${m} Light`,
+    `${t} Song`,
+    `The ${t} Between`,
+    `${m} Territory`,
+    // One-word + modifier
+    `${t}: A Reflection`,
+    `On ${t}`,
+    `Into ${m}`,
   ];
 
   return titlePatterns[Math.floor(Math.random() * titlePatterns.length)];
