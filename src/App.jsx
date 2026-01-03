@@ -142,9 +142,87 @@ export default function ArtGallery() {
   const [individualNotes, setIndividualNotes] = useState({}); // { index: { title, note } }
   const [seriesStep, setSeriesStep] = useState(0); // 0: choose mode, 1: series info, 2: individual notes, 3: review
 
+  // Settings/Export state
+  const [showSettings, setShowSettings] = useState(false);
+
   const fileInputRef = useRef(null);
   const galleryRef = useRef(null);
   const docInputRef = useRef(null);
+  const importInputRef = useRef(null);
+
+  // Export gallery data to JSON file
+  const exportGalleryData = () => {
+    const userArtworks = artworks.filter(a => !a.isDefault);
+    const exportData = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      user: user ? { email: user.email, name: user.name } : null,
+      artworks: userArtworks.map(art => ({
+        id: art.id,
+        title: art.title,
+        artist: art.artist,
+        style: art.style,
+        category: art.category,
+        description: art.description,
+        price: art.price,
+        image: art.image,
+        seriesName: art.seriesName || null,
+        createdAt: art.createdAt || new Date().toISOString(),
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hiper-gallery-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToastMessage(`Exported ${userArtworks.length} artworks to JSON`);
+  };
+
+  // Import gallery data from JSON file
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      if (!data.artworks || !Array.isArray(data.artworks)) {
+        throw new Error('Invalid backup file format');
+      }
+
+      // Merge imported artworks with existing (avoid duplicates by title)
+      const existingTitles = new Set(artworks.map(a => a.title));
+      const newArtworks = data.artworks.filter(a => !existingTitles.has(a.title));
+
+      if (newArtworks.length === 0) {
+        showToastMessage('No new artworks to import', 'error');
+        return;
+      }
+
+      // Add isNew flag and save to localStorage
+      const artworksToAdd = newArtworks.map(a => ({ ...a, isNew: true }));
+      setArtworks(prev => [...artworksToAdd, ...prev]);
+
+      // Save to localStorage
+      const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
+      localStorage.setItem('hiperGalleryArtworks', JSON.stringify([...artworksToAdd, ...savedArtworks]));
+
+      showToastMessage(`Imported ${newArtworks.length} artworks!`);
+      setShowSettings(false);
+    } catch (err) {
+      console.error('Import error:', err);
+      showToastMessage('Failed to import: Invalid file format', 'error');
+    }
+
+    e.target.value = '';
+  };
 
   // Check auth state on mount
   useEffect(() => {
@@ -853,6 +931,15 @@ export default function ArtGallery() {
         className="hidden"
       />
 
+      {/* Hidden file input for import */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".json"
+        onChange={handleImportFile}
+        className="hidden"
+      />
+
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-40 transition-all duration-500">
         <div className="absolute inset-0 bg-[#0a0a0b]/80 backdrop-blur-2xl border-b border-white/5" />
@@ -897,6 +984,16 @@ export default function ArtGallery() {
                     <span className="text-sm text-white/70 hidden sm:block">{user.email?.split('@')[0]}</span>
                   </button>
                   <div className="absolute right-0 mt-2 w-48 py-2 bg-[#1a1a1c] rounded-xl border border-white/10 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300">
+                    <button
+                      onClick={() => setShowSettings(true)}
+                      className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      Settings
+                    </button>
                     <button
                       onClick={handleLogout}
                       className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors"
@@ -1801,6 +1898,96 @@ export default function ArtGallery() {
               </div>
             </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4"
+          onClick={() => setShowSettings(false)}
+        >
+          <div
+            className="bg-[#141416] rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-8">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-xl font-semibold">Settings</h3>
+                  <p className="text-sm text-white/40">Manage your gallery data</p>
+                </div>
+              </div>
+
+              {/* Stats */}
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="p-4 rounded-xl bg-white/5">
+                  <p className="text-2xl font-bold text-amber-400">{artworks.filter(a => !a.isDefault).length}</p>
+                  <p className="text-sm text-white/40">Your Artworks</p>
+                </div>
+                <div className="p-4 rounded-xl bg-white/5">
+                  <p className="text-2xl font-bold text-white/70">{artworks.filter(a => a.isDefault).length}</p>
+                  <p className="text-sm text-white/40">Default Gallery</p>
+                </div>
+              </div>
+
+              {/* Export/Import Section */}
+              <div className="space-y-3 mb-6">
+                <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider">Backup & Restore</h4>
+
+                <button
+                  onClick={exportGalleryData}
+                  className="w-full p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center gap-4 text-left"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-green-500/20 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-medium">Export Gallery</p>
+                    <p className="text-sm text-white/40">Download your artworks as a JSON file</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => importInputRef.current?.click()}
+                  className="w-full p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center gap-4 text-left"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-medium">Import Gallery</p>
+                    <p className="text-sm text-white/40">Restore from a backup JSON file</p>
+                  </div>
+                </button>
+              </div>
+
+              {/* Info */}
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 mb-6">
+                <p className="text-sm text-amber-200/80">
+                  <strong>Tip:</strong> Export your gallery before clearing browser data.
+                  You can also commit the JSON file to GitHub for version control.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowSettings(false)}
+                className="w-full py-4 rounded-xl border border-white/10 text-white/70 font-medium hover:bg-white/5 transition-all"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
