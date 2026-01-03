@@ -27,7 +27,7 @@ const frames = [
   { name: "gold", label: "Antique Gold", price: 149, color: "#d4af37" },
 ];
 
-const categories = ['abstract', 'surreal', 'nature', 'portrait', 'landscape'];
+const categories = ['abstract', 'surreal', 'nature', 'portrait', 'landscape', 'geometric', 'minimal', 'digital', 'mixed-media'];
 
 // User roles
 const USER_ROLES = {
@@ -151,6 +151,7 @@ export default function ArtGallery() {
   // Gallery state
   const [artworks, setArtworks] = useState(defaultArtworks);
   const [filter, setFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('newest'); // newest, oldest, title
   const [selectedArt, setSelectedArt] = useState(null);
   const [selectedSize, setSelectedSize] = useState(1);
   const [selectedFrame, setSelectedFrame] = useState(1);
@@ -195,6 +196,11 @@ export default function ArtGallery() {
 
   // Settings/Export state
   const [showSettings, setShowSettings] = useState(false);
+
+  // Touch/swipe state for series carousel
+  const [touchStart, setTouchStart] = useState(null);
+  const [touchEnd, setTouchEnd] = useState(null);
+  const minSwipeDistance = 50;
 
   const fileInputRef = useRef(null);
   const galleryRef = useRef(null);
@@ -756,11 +762,22 @@ export default function ArtGallery() {
     const seriesFolders = Object.values(seriesMap);
     const items = [...seriesFolders, ...standalone];
 
-    // Sort by newest first (using first artwork's id for series)
+    // Sort based on sortBy preference
     items.sort((a, b) => {
       const aId = a.type === 'series' ? Math.max(...a.artworks.map(x => x.id)) : a.id;
       const bId = b.type === 'series' ? Math.max(...b.artworks.map(x => x.id)) : b.id;
-      return bId - aId;
+      const aTitle = a.type === 'series' ? a.name : a.title;
+      const bTitle = b.type === 'series' ? b.name : b.title;
+
+      switch (sortBy) {
+        case 'oldest':
+          return aId - bId;
+        case 'title':
+          return aTitle.localeCompare(bTitle);
+        case 'newest':
+        default:
+          return bId - aId;
+      }
     });
 
     return items;
@@ -1400,23 +1417,48 @@ export default function ArtGallery() {
         </div>
       </section>
 
-      {/* Filters */}
+      {/* Filters & Sorting */}
       <nav ref={galleryRef} className="px-6 lg:px-8 pb-12 scroll-mt-24">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            {['all', ...categories].map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-5 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300 ${
-                  filter === f
-                    ? 'bg-white text-[#0a0a0b]'
-                    : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70 border border-transparent hover:border-white/10'
-                }`}
-              >
-                {f === 'all' ? 'All Works' : f.charAt(0).toUpperCase() + f.slice(1)}
-              </button>
-            ))}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            {/* Category filters */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              {['all', ...categories].map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={`px-5 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300 ${
+                    filter === f
+                      ? 'bg-white text-[#0a0a0b]'
+                      : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70 border border-transparent hover:border-white/10'
+                  }`}
+                >
+                  {f === 'all' ? 'All Works' : f.charAt(0).toUpperCase() + f.slice(1).replace('-', ' ')}
+                </button>
+              ))}
+            </div>
+
+            {/* Sort options */}
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-white/40 text-sm">Sort:</span>
+              {[
+                { value: 'newest', label: 'Newest' },
+                { value: 'oldest', label: 'Oldest' },
+                { value: 'title', label: 'A-Z' },
+              ].map(s => (
+                <button
+                  key={s.value}
+                  onClick={() => setSortBy(s.value)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-300 ${
+                    sortBy === s.value
+                      ? 'bg-amber-500 text-black'
+                      : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </nav>
@@ -1565,7 +1607,7 @@ export default function ArtGallery() {
                     <img
                       src={item.image}
                       alt={item.title}
-                      className="w-full h-full object-cover transition-all duration-700 group-hover:scale-110"
+                      className="w-full h-full object-cover object-center transition-all duration-700 group-hover:scale-110"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/20 to-transparent opacity-60" />
 
@@ -1651,8 +1693,25 @@ export default function ArtGallery() {
               </button>
             </div>
 
-            {/* Carousel Area */}
-            <div className="flex-1 flex items-center justify-center relative min-h-0">
+            {/* Carousel Area - with swipe support */}
+            <div
+              className="flex-1 flex items-center justify-center relative min-h-0"
+              onTouchStart={(e) => setTouchStart(e.targetTouches[0].clientX)}
+              onTouchMove={(e) => setTouchEnd(e.targetTouches[0].clientX)}
+              onTouchEnd={() => {
+                if (!touchStart || !touchEnd) return;
+                const distance = touchStart - touchEnd;
+                if (Math.abs(distance) > minSwipeDistance) {
+                  if (distance > 0 && seriesViewIndex < openSeries.artworks.length - 1) {
+                    nextSeriesArt();
+                  } else if (distance < 0 && seriesViewIndex > 0) {
+                    prevSeriesArt();
+                  }
+                }
+                setTouchStart(null);
+                setTouchEnd(null);
+              }}
+            >
               {/* Previous Button */}
               <button
                 onClick={prevSeriesArt}
@@ -1765,10 +1824,13 @@ export default function ArtGallery() {
               ))}
             </div>
 
-            {/* Keyboard hint */}
+            {/* Navigation hint */}
             <div className="text-center pb-4">
-              <span className="text-white/30 text-xs">
+              <span className="text-white/30 text-xs hidden sm:inline">
                 Use arrow keys to navigate or click cards to jump
+              </span>
+              <span className="text-white/30 text-xs sm:hidden">
+                Swipe left/right to navigate
               </span>
             </div>
           </div>
@@ -2864,6 +2926,19 @@ export default function ArtGallery() {
                     </span>
                   )}
                 </div>
+
+                {/* Edit button for admin/owner */}
+                {canEdit(user, selectedArt) && (
+                  <button
+                    onClick={() => { closeModal(); setTimeout(() => openEditModal(selectedArt), 100); }}
+                    className="mt-4 w-full py-3 rounded-xl bg-white/5 border border-white/10 text-white/70 font-medium hover:bg-white/10 hover:text-white transition-all duration-300 flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    Edit Artwork
+                  </button>
+                )}
               </div>
             </div>
 
