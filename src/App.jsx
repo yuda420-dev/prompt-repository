@@ -398,30 +398,23 @@ export default function ArtGallery() {
   // Check auth state on mount
   useEffect(() => {
     if (!isSupabaseConfigured()) {
-      // Demo mode - check localStorage
-      const savedUser = localStorage.getItem('hiperGalleryUser');
-      if (savedUser) {
-        setUser(JSON.parse(savedUser));
-      }
       setAuthLoading(false);
-      loadArtworksFromStorage();
       return;
     }
 
-    // Real Supabase auth
+    // Load artworks for everyone (logged in or not)
+    loadArtworksFromDatabase(null);
+
+    // Check auth session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setAuthLoading(false);
-      if (session?.user) {
-        loadArtworksFromDatabase(session.user.id);
-      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      if (session?.user) {
-        loadArtworksFromDatabase(session.user.id);
-      }
+      // Reload artworks when auth changes to show user's own works
+      loadArtworksFromDatabase(session?.user?.id ?? null);
     });
 
     return () => subscription.unsubscribe();
@@ -457,10 +450,11 @@ export default function ArtGallery() {
   // Load artworks from Supabase
   const loadArtworksFromDatabase = async (userId) => {
     try {
+      // Load all public artworks (is_public = true includes defaults and user uploads)
       const { data, error } = await supabase
         .from('artworks')
         .select('*')
-        .or(`is_default.eq.true,user_id.eq.${userId}`)
+        .eq('is_public', true)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -474,6 +468,7 @@ export default function ArtGallery() {
           category: art.category?.toLowerCase() || 'abstract',
           description: art.description,
           image: art.image_url,
+          seriesName: art.series_name,
           isDefault: art.is_default,
           isNew: !art.is_default && art.user_id === userId,
           userId: art.user_id,
@@ -529,6 +524,7 @@ export default function ArtGallery() {
           description: artwork.description,
           category: artwork.category,
           image_url: imageUrl,
+          series_name: artwork.seriesName || null,
           is_default: false,
           is_public: true,
         })
