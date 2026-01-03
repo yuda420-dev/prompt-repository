@@ -149,6 +149,7 @@ export default function ArtGallery() {
   const galleryRef = useRef(null);
   const docInputRef = useRef(null);
   const importInputRef = useRef(null);
+  const seriesDocInputRef = useRef(null);
 
   // Export gallery data to JSON file
   const exportGalleryData = () => {
@@ -180,8 +181,89 @@ export default function ArtGallery() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-
     showToastMessage(`Exported ${userArtworks.length} artworks to JSON`);
+  };
+
+  // Export to Notion-friendly markdown
+  const exportToNotion = () => {
+    const userArtworks = artworks.filter(a => !a.isDefault);
+
+    if (userArtworks.length === 0) {
+      showToastMessage('No artworks to export', 'error');
+      return;
+    }
+
+    // Group by series
+    const series = {};
+    const standalone = [];
+
+    userArtworks.forEach(art => {
+      if (art.seriesName) {
+        if (!series[art.seriesName]) {
+          series[art.seriesName] = [];
+        }
+        series[art.seriesName].push(art);
+      } else {
+        standalone.push(art);
+      }
+    });
+
+    let markdown = `# HiPeR Gallery - Art Collection\n\n`;
+    markdown += `*Exported on ${new Date().toLocaleDateString()}*\n\n`;
+    markdown += `---\n\n`;
+
+    // Series
+    Object.entries(series).forEach(([seriesName, arts]) => {
+      markdown += `## Series: ${seriesName}\n\n`;
+      arts.forEach((art, i) => {
+        markdown += `### ${i + 1}. ${art.title}\n\n`;
+        markdown += `- **Category:** ${art.category}\n`;
+        markdown += `- **Style:** ${art.style || 'N/A'}\n`;
+        markdown += `- **Price:** $${art.price}\n\n`;
+        if (art.description) {
+          markdown += `> ${art.description.replace(/\n/g, '\n> ')}\n\n`;
+        }
+        if (art.image && art.image.startsWith('http')) {
+          markdown += `![${art.title}](${art.image})\n\n`;
+        }
+        markdown += `---\n\n`;
+      });
+    });
+
+    // Standalone artworks
+    if (standalone.length > 0) {
+      markdown += `## Individual Works\n\n`;
+      standalone.forEach((art, i) => {
+        markdown += `### ${i + 1}. ${art.title}\n\n`;
+        markdown += `- **Category:** ${art.category}\n`;
+        markdown += `- **Style:** ${art.style || 'N/A'}\n`;
+        markdown += `- **Price:** $${art.price}\n\n`;
+        if (art.description) {
+          markdown += `> ${art.description.replace(/\n/g, '\n> ')}\n\n`;
+        }
+        if (art.image && art.image.startsWith('http')) {
+          markdown += `![${art.title}](${art.image})\n\n`;
+        }
+        markdown += `---\n\n`;
+      });
+    }
+
+    // Copy to clipboard
+    navigator.clipboard.writeText(markdown).then(() => {
+      showToastMessage('Copied to clipboard! Paste in Notion.');
+    }).catch(() => {
+      // Fallback: download as file
+      const blob = new Blob([markdown], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `hiper-gallery-notion-${new Date().toISOString().split('T')[0]}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToastMessage('Downloaded markdown file for Notion');
+    });
   };
 
   // Import gallery data from JSON file
@@ -222,6 +304,63 @@ export default function ArtGallery() {
     }
 
     e.target.value = '';
+  };
+
+  // Handle series document upload
+  const handleSeriesDocUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const lines = text.trim().split('\n');
+      const firstLine = lines[0]?.trim() || '';
+
+      // If first line is short (likely a title), use it as series name
+      if (firstLine.length > 0 && firstLine.length < 100 && !firstLine.includes('.')) {
+        setSeriesName(firstLine);
+        setSeriesDescription(lines.slice(1).join('\n').trim());
+      } else {
+        setSeriesDescription(text.trim());
+      }
+      showToastMessage('Document loaded!');
+    } catch (err) {
+      showToastMessage('Could not read document', 'error');
+    }
+    e.target.value = '';
+  };
+
+  // Generate AI description for series
+  const generateSeriesDescription = () => {
+    const themes = ['journey', 'exploration', 'transformation', 'connection', 'reflection', 'discovery'];
+    const adjectives = ['captivating', 'evocative', 'mesmerizing', 'thought-provoking', 'intimate', 'bold'];
+    const approaches = [
+      'examines the relationship between light and shadow',
+      'explores the boundaries of perception',
+      'captures fleeting moments of beauty',
+      'invites viewers into a world of imagination',
+      'challenges conventional perspectives',
+      'celebrates the complexity of human experience'
+    ];
+
+    const theme = themes[Math.floor(Math.random() * themes.length)];
+    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const approach = approaches[Math.floor(Math.random() * approaches.length)];
+
+    const description = `This ${adj} series ${approach}. Each piece in this collection represents a unique perspective on the theme of ${theme}, while maintaining a cohesive visual language that ties the works together. The series invites contemplation and rewards close observation.`;
+
+    setSeriesDescription(description);
+
+    if (!seriesName) {
+      const nameOptions = [
+        `${theme.charAt(0).toUpperCase() + theme.slice(1)} Studies`,
+        `Variations on ${theme.charAt(0).toUpperCase() + theme.slice(1)}`,
+        `The ${adj.charAt(0).toUpperCase() + adj.slice(1)} Collection`,
+      ];
+      setSeriesName(nameOptions[Math.floor(Math.random() * nameOptions.length)]);
+    }
+
+    showToastMessage('Description generated!');
   };
 
   // Check auth state on mount
@@ -940,6 +1079,15 @@ export default function ArtGallery() {
         className="hidden"
       />
 
+      {/* Hidden file input for series document */}
+      <input
+        ref={seriesDocInputRef}
+        type="file"
+        accept=".txt,.doc,.docx,.md,.rtf"
+        onChange={handleSeriesDocUpload}
+        className="hidden"
+      />
+
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-40 transition-all duration-500">
         <div className="absolute inset-0 bg-[#0a0a0b]/80 backdrop-blur-2xl border-b border-white/5" />
@@ -1437,7 +1585,29 @@ export default function ArtGallery() {
                     <>
                       <div className="mb-2 text-xs text-amber-500 font-medium">Series Info</div>
                       <h3 className="text-2xl font-semibold mb-2">Describe Your Series</h3>
-                      <p className="text-white/40 mb-6">This description will be shared by all pieces</p>
+                      <p className="text-white/40 mb-4">This description will be shared by all pieces</p>
+
+                      {/* Quick options: AI Generate or Upload Document */}
+                      <div className="flex gap-2 mb-6">
+                        <button
+                          onClick={generateSeriesDescription}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-purple-500/20 border border-purple-500/30 hover:bg-purple-500/30 transition-all text-purple-300 text-sm"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          AI Generate
+                        </button>
+                        <button
+                          onClick={() => seriesDocInputRef.current?.click()}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-white/60 text-sm"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          Upload Document
+                        </button>
+                      </div>
 
                       <div className="space-y-4 mb-6">
                         <div>
@@ -1457,7 +1627,7 @@ export default function ArtGallery() {
                             value={seriesDescription}
                             onChange={(e) => setSeriesDescription(e.target.value)}
                             placeholder="Describe the theme, concept, or story that connects all pieces in this series..."
-                            rows={5}
+                            rows={4}
                             className="w-full px-5 py-4 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none transition-all resize-none placeholder:text-white/20"
                           />
                         </div>
@@ -1482,23 +1652,41 @@ export default function ArtGallery() {
                         </div>
                       </div>
 
-                      <div className="mt-auto flex gap-3">
+                      <div className="mt-auto space-y-3">
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => { setSeriesStep(0); setIsSeriesMode(false); }}
+                            className="px-6 py-3 rounded-xl border border-white/10 text-white/60 hover:bg-white/5 transition-all"
+                          >
+                            Back
+                          </button>
+                          <button
+                            onClick={() => setSeriesStep(2)}
+                            disabled={!seriesName.trim() || !seriesDescription.trim()}
+                            className={`flex-1 py-3 rounded-xl font-medium transition-all duration-300 ${
+                              seriesName.trim() && seriesDescription.trim()
+                                ? 'bg-white/10 text-white hover:bg-white/15'
+                                : 'bg-white/5 text-white/30 cursor-not-allowed'
+                            }`}
+                          >
+                            Add Individual Notes
+                          </button>
+                        </div>
+
+                        {/* Skip to publish button */}
                         <button
-                          onClick={() => { setSeriesStep(0); setIsSeriesMode(false); }}
-                          className="px-6 py-3 rounded-xl border border-white/10 text-white/60 hover:bg-white/5 transition-all"
-                        >
-                          Back
-                        </button>
-                        <button
-                          onClick={() => setSeriesStep(2)}
+                          onClick={() => setSeriesStep(3)}
                           disabled={!seriesName.trim() || !seriesDescription.trim()}
-                          className={`flex-1 py-3 rounded-xl font-medium transition-all duration-300 ${
+                          className={`w-full py-4 rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
                             seriesName.trim() && seriesDescription.trim()
-                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] hover:shadow-lg hover:shadow-amber-500/25'
-                              : 'bg-white/10 text-white/30 cursor-not-allowed'
+                              ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white hover:shadow-lg hover:shadow-green-500/25'
+                              : 'bg-white/5 text-white/30 cursor-not-allowed'
                           }`}
                         >
-                          Add Individual Notes
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Publish Series Now
                         </button>
                       </div>
                     </>
@@ -1969,6 +2157,21 @@ export default function ArtGallery() {
                   <div>
                     <p className="font-medium">Import Gallery</p>
                     <p className="text-sm text-white/40">Restore from a backup JSON file</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={exportToNotion}
+                  className="w-full p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center gap-4 text-left"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-[#000]/40 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.046-.326L17.86 1.968c-.42-.326-.98-.7-2.055-.607L3.01 2.295c-.466.046-.56.28-.374.466zm.793 3.08v13.904c0 .747.373 1.027 1.214.98l14.523-.84c.841-.046.935-.56.935-1.167V6.354c0-.606-.233-.933-.748-.887l-15.177.887c-.56.047-.747.327-.747.934zm14.337.745c.093.42 0 .84-.42.888l-.7.14v10.264c-.608.327-1.168.514-1.635.514-.748 0-.935-.234-1.495-.933l-4.577-7.186v6.952l1.449.327s0 .84-1.168.84l-3.222.186c-.093-.186 0-.653.327-.746l.84-.233V9.854L7.822 9.62c-.094-.42.14-1.026.793-1.073l3.456-.233 4.764 7.279v-6.44l-1.215-.139c-.093-.514.28-.887.747-.933zM2.213 1.548l12.728-.932c1.588-.14 1.961-.047 2.941.7l4.018 2.8c.653.467.84.7.84 1.307v16.38c0 1.026-.374 1.634-1.68 1.726L5.7 24c-.98.047-1.448-.093-1.962-.747l-3.129-4.06c-.56-.747-.793-1.306-.793-1.96V2.948c0-.84.374-1.54 1.397-1.4z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-medium">Export to Notion</p>
+                    <p className="text-sm text-white/40">Copy formatted markdown for Notion</p>
                   </div>
                 </button>
               </div>
