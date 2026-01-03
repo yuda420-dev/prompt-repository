@@ -162,6 +162,14 @@ export default function ArtGallery() {
   const [editingArt, setEditingArt] = useState(null);
   const [showAbout, setShowAbout] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState(null);
+  const [fullscreenIndex, setFullscreenIndex] = useState(0); // For sliding in fullscreen
+  const [fullscreenArtworks, setFullscreenArtworks] = useState([]); // Context for fullscreen sliding
+
+  // Favorites state
+  const [favorites, setFavorites] = useState([]);
+
+  // Analytics state
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   // Upload questionnaire state
   const [pendingUploads, setPendingUploads] = useState([]);
@@ -468,6 +476,72 @@ export default function ArtGallery() {
       setArtworks([...defaultArtworks, ...parsed]);
     }
   };
+
+  // Load favorites from localStorage
+  useEffect(() => {
+    const savedFavorites = localStorage.getItem('hiperGalleryFavorites');
+    if (savedFavorites) {
+      setFavorites(JSON.parse(savedFavorites));
+    }
+  }, []);
+
+  // Toggle favorite
+  const toggleFavorite = (artworkId, e) => {
+    if (e) e.stopPropagation();
+    setFavorites(prev => {
+      const newFavorites = prev.includes(artworkId)
+        ? prev.filter(id => id !== artworkId)
+        : [...prev, artworkId];
+      localStorage.setItem('hiperGalleryFavorites', JSON.stringify(newFavorites));
+      return newFavorites;
+    });
+  };
+
+  const isFavorite = (artworkId) => favorites.includes(artworkId);
+
+  // Open fullscreen with sliding context
+  const openFullscreen = (artwork, artworksList = null) => {
+    const list = artworksList || artworks.filter(a => !a.seriesName); // Use provided list or all non-series artworks
+    const index = list.findIndex(a => a.id === artwork.id);
+    setFullscreenArtworks(list);
+    setFullscreenIndex(index >= 0 ? index : 0);
+    setFullscreenImage(artwork.image);
+  };
+
+  // Navigate in fullscreen
+  const fullscreenPrev = () => {
+    if (fullscreenIndex > 0) {
+      const newIndex = fullscreenIndex - 1;
+      setFullscreenIndex(newIndex);
+      setFullscreenImage(fullscreenArtworks[newIndex]?.image);
+    }
+  };
+
+  const fullscreenNext = () => {
+    if (fullscreenIndex < fullscreenArtworks.length - 1) {
+      const newIndex = fullscreenIndex + 1;
+      setFullscreenIndex(newIndex);
+      setFullscreenImage(fullscreenArtworks[newIndex]?.image);
+    }
+  };
+
+  // Keyboard navigation for fullscreen
+  useEffect(() => {
+    if (!fullscreenImage) return;
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'ArrowLeft') {
+        fullscreenPrev();
+      } else if (e.key === 'ArrowRight') {
+        fullscreenNext();
+      } else if (e.key === 'Escape') {
+        setFullscreenImage(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fullscreenImage, fullscreenIndex, fullscreenArtworks]);
 
   // Load artworks from Supabase
   const loadArtworksFromDatabase = async (userId) => {
@@ -1319,6 +1393,18 @@ export default function ArtGallery() {
                         {ROLE_LABELS[user.role] || 'Artist'}
                       </span>
                     </div>
+                    {/* Analytics - Admin only */}
+                    {getUserRole(user) === USER_ROLES.ADMIN && (
+                      <button
+                        onClick={() => setShowAnalytics(true)}
+                        className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        Analytics
+                      </button>
+                    )}
                     <button
                       onClick={() => setShowSettings(true)}
                       className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
@@ -1488,43 +1574,71 @@ export default function ArtGallery() {
             {/* Gallery Items - Series Folders & Standalone Artworks */}
             {galleryItems.map((item, index) => (
               item.type === 'series' ? (
-                // Series Card - Stacked Deck Style
+                // Series Card - Stacked Deck Style (fan of cards)
                 <article
                   key={`series-${item.name}`}
                   onClick={() => openSeriesFolder(item)}
                   className="group relative cursor-pointer transition-all duration-500"
                   style={{ animationDelay: `${index * 100}ms` }}
                 >
-                  <div className="aspect-[4/5] relative">
-                    {/* Stacked cards behind - show peek of cards below */}
-                    {item.artworks.slice(1, 4).reverse().map((art, i) => {
-                      const reverseIndex = Math.min(item.artworks.length - 1, 3) - i - 1;
-                      const offset = (reverseIndex + 1) * 8;
-                      const scale = 1 - (reverseIndex + 1) * 0.03;
-                      return (
-                        <div
-                          key={art.id}
-                          className="absolute inset-x-0 top-0 rounded-2xl overflow-hidden shadow-lg transition-all duration-500"
-                          style={{
-                            transform: `translateY(${offset}px) scale(${scale})`,
-                            zIndex: 3 - reverseIndex,
-                            opacity: 0.9 - reverseIndex * 0.15,
-                          }}
-                        >
-                          <div className="aspect-[4/5] bg-[#1a1a1c]">
-                            <img
-                              src={art.image}
-                              alt=""
-                              className="w-full h-full object-cover opacity-60"
-                            />
-                          </div>
+                  <div className="aspect-[4/5] relative pt-3 pl-3">
+                    {/* Background cards - fanned out for deck effect */}
+                    {item.artworks.length > 2 && item.artworks[2] && (
+                      <div
+                        className="absolute rounded-2xl overflow-hidden shadow-lg transition-all duration-500 group-hover:translate-x-3 group-hover:-translate-y-1"
+                        style={{
+                          top: '0px',
+                          left: '0px',
+                          right: '24px',
+                          bottom: '24px',
+                          zIndex: 1,
+                          transform: 'rotate(-6deg)',
+                        }}
+                      >
+                        <div className="w-full h-full bg-[#1a1a1c]">
+                          <img
+                            src={item.artworks[2].image}
+                            alt=""
+                            className="w-full h-full object-cover opacity-70"
+                          />
                         </div>
-                      );
-                    })}
+                      </div>
+                    )}
+
+                    {item.artworks.length > 1 && item.artworks[1] && (
+                      <div
+                        className="absolute rounded-2xl overflow-hidden shadow-lg transition-all duration-500 group-hover:translate-x-2 group-hover:-translate-y-0.5"
+                        style={{
+                          top: '6px',
+                          left: '6px',
+                          right: '18px',
+                          bottom: '18px',
+                          zIndex: 2,
+                          transform: 'rotate(-3deg)',
+                        }}
+                      >
+                        <div className="w-full h-full bg-[#1a1a1c]">
+                          <img
+                            src={item.artworks[1].image}
+                            alt=""
+                            className="w-full h-full object-cover opacity-80"
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     {/* Top card - main visible card */}
-                    <div className="relative rounded-2xl overflow-hidden shadow-2xl ring-2 ring-amber-500/40 group-hover:ring-amber-500/70 transition-all duration-500 group-hover:shadow-amber-500/20 z-10">
-                      <div className="aspect-[4/5] relative">
+                    <div
+                      className="absolute rounded-2xl overflow-hidden shadow-2xl ring-2 ring-amber-500/40 group-hover:ring-amber-500/70 transition-all duration-500 group-hover:shadow-amber-500/20 group-hover:translate-x-1"
+                      style={{
+                        top: '12px',
+                        left: '12px',
+                        right: '12px',
+                        bottom: '12px',
+                        zIndex: 3,
+                      }}
+                    >
+                      <div className="w-full h-full relative">
                         <img
                           src={item.artworks[0]?.image}
                           alt={item.artworks[0]?.title}
@@ -1575,6 +1689,25 @@ export default function ArtGallery() {
                       NEW
                     </div>
                   )}
+
+                  {/* Star/Favorite button - always visible, bottom left */}
+                  <button
+                    onClick={(e) => toggleFavorite(item.id, e)}
+                    className={`absolute bottom-20 left-4 z-10 w-10 h-10 rounded-full backdrop-blur-sm flex items-center justify-center transition-all duration-300 ${
+                      isFavorite(item.id)
+                        ? 'bg-amber-500 text-black'
+                        : 'bg-black/40 text-white/70 hover:bg-black/60 hover:text-white opacity-0 group-hover:opacity-100'
+                    } ${isFavorite(item.id) ? 'opacity-100' : ''}`}
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill={isFavorite(item.id) ? 'currentColor' : 'none'}
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                    </svg>
+                  </button>
 
                   {/* Edit & Delete buttons - based on user permissions (admin can edit/delete all) */}
                   {/* Always visible for admin, hover for others (touch-friendly) */}
@@ -1772,6 +1905,37 @@ export default function ArtGallery() {
                           <div className="absolute top-4 right-4 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-sm text-xs text-white/80">
                             {i + 1} / {openSeries.artworks.length}
                           </div>
+
+                          {/* Star and Fullscreen buttons - only on active card */}
+                          {isActive && (
+                            <>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); toggleFavorite(art.id); }}
+                                className={`absolute top-4 left-4 w-10 h-10 rounded-full backdrop-blur-sm flex items-center justify-center transition-all ${
+                                  isFavorite(art.id)
+                                    ? 'bg-amber-500 text-black'
+                                    : 'bg-black/50 text-white/80 hover:bg-black/70 hover:text-white'
+                                }`}
+                              >
+                                <svg
+                                  className="w-5 h-5"
+                                  fill={isFavorite(art.id) ? 'currentColor' : 'none'}
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openFullscreen(art, openSeries.artworks); }}
+                                className="absolute bottom-4 right-4 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white/80 hover:bg-black/70 hover:text-white transition-all"
+                              >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                                </svg>
+                              </button>
+                            </>
+                          )}
                         </div>
 
                         {/* Info */}
@@ -2696,6 +2860,138 @@ export default function ArtGallery() {
         </div>
       )}
 
+      {/* Analytics Modal */}
+      {showAnalytics && getUserRole(user) === USER_ROLES.ADMIN && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4"
+          onClick={() => setShowAnalytics(false)}
+        >
+          <div
+            className="bg-[#141416] rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-8 border-b border-white/5">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-xl font-semibold">Gallery Analytics</h3>
+                  <p className="text-sm text-white/40">Overview of your gallery's performance</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-8 overflow-y-auto max-h-[60vh]">
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+                <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30">
+                  <p className="text-3xl font-bold text-amber-400">{artworks.length}</p>
+                  <p className="text-sm text-white/50">Total Artworks</p>
+                </div>
+                <div className="p-4 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/30">
+                  <p className="text-3xl font-bold text-blue-400">{artworks.filter(a => !a.isDefault).length}</p>
+                  <p className="text-sm text-white/50">Your Uploads</p>
+                </div>
+                <div className="p-4 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30">
+                  <p className="text-3xl font-bold text-purple-400">{favorites.length}</p>
+                  <p className="text-sm text-white/50">Favorites</p>
+                </div>
+                <div className="p-4 rounded-xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
+                  <p className="text-3xl font-bold text-green-400">
+                    {[...new Set(artworks.filter(a => a.seriesName).map(a => a.seriesName))].length}
+                  </p>
+                  <p className="text-sm text-white/50">Series</p>
+                </div>
+              </div>
+
+              {/* Category Breakdown */}
+              <div className="mb-8">
+                <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider mb-4">By Category</h4>
+                <div className="space-y-3">
+                  {categories.map(cat => {
+                    const count = artworks.filter(a => a.category === cat).length;
+                    const percentage = artworks.length > 0 ? (count / artworks.length) * 100 : 0;
+                    return (
+                      <div key={cat} className="flex items-center gap-3">
+                        <span className="w-24 text-sm text-white/60 capitalize">{cat}</span>
+                        <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500"
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
+                        <span className="w-8 text-sm text-white/40 text-right">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Favorited Works */}
+              {favorites.length > 0 && (
+                <div className="mb-8">
+                  <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider mb-4">Favorited Works</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {favorites.slice(0, 10).map(favId => {
+                      const art = artworks.find(a => a.id === favId);
+                      if (!art) return null;
+                      return (
+                        <div
+                          key={favId}
+                          className="w-16 h-16 rounded-lg overflow-hidden ring-2 ring-amber-500/50"
+                          title={art.title}
+                        >
+                          <img src={art.image} alt={art.title} className="w-full h-full object-cover" />
+                        </div>
+                      );
+                    })}
+                    {favorites.length > 10 && (
+                      <div className="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-sm text-white/50">
+                        +{favorites.length - 10}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Series List */}
+              {(() => {
+                const seriesNames = [...new Set(artworks.filter(a => a.seriesName).map(a => a.seriesName))];
+                if (seriesNames.length === 0) return null;
+                return (
+                  <div>
+                    <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider mb-4">Series</h4>
+                    <div className="space-y-2">
+                      {seriesNames.map(name => {
+                        const seriesArtworks = artworks.filter(a => a.seriesName === name);
+                        return (
+                          <div key={name} className="flex items-center justify-between p-3 rounded-xl bg-white/5">
+                            <span className="font-medium">{name}</span>
+                            <span className="text-sm text-amber-400">{seriesArtworks.length} pieces</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="p-8 border-t border-white/5">
+              <button
+                onClick={() => setShowAnalytics(false)}
+                className="w-full py-4 rounded-xl border border-white/10 text-white/70 font-medium hover:bg-white/5 transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* About Modal */}
       {showAbout && (
         <div
@@ -2873,11 +3169,30 @@ export default function ArtGallery() {
 
                 {/* Fullscreen button */}
                 <button
-                  onClick={(e) => { e.stopPropagation(); setFullscreenImage(selectedArt.image); }}
+                  onClick={(e) => { e.stopPropagation(); openFullscreen(selectedArt, artworks); }}
                   className="absolute bottom-4 right-4 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white/80 hover:bg-black/70 hover:text-white transition-all"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                </button>
+
+                {/* Star/Favorite button */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleFavorite(selectedArt.id); }}
+                  className={`absolute bottom-4 left-4 w-10 h-10 rounded-full backdrop-blur-sm flex items-center justify-center transition-all ${
+                    isFavorite(selectedArt.id)
+                      ? 'bg-amber-500 text-black'
+                      : 'bg-black/50 text-white/80 hover:bg-black/70 hover:text-white'
+                  }`}
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill={isFavorite(selectedArt.id) ? 'currentColor' : 'none'}
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
                   </svg>
                 </button>
 
@@ -3055,17 +3370,71 @@ export default function ArtGallery() {
         </>
       )}
 
-      {/* Fullscreen Image View */}
+      {/* Fullscreen Image View with Navigation */}
       {fullscreenImage && (
         <div
           className="fixed inset-0 z-[100] bg-black flex items-center justify-center"
           onClick={() => setFullscreenImage(null)}
+          onTouchStart={(e) => setTouchStart(e.targetTouches[0].clientX)}
+          onTouchMove={(e) => setTouchEnd(e.targetTouches[0].clientX)}
+          onTouchEnd={() => {
+            if (!touchStart || !touchEnd) return;
+            const distance = touchStart - touchEnd;
+            if (Math.abs(distance) > minSwipeDistance) {
+              if (distance > 0) {
+                fullscreenNext();
+              } else {
+                fullscreenPrev();
+              }
+            }
+            setTouchStart(null);
+            setTouchEnd(null);
+          }}
         >
+          {/* Main Image */}
           <img
             src={fullscreenImage}
             alt="Fullscreen view"
-            className="max-w-full max-h-full object-contain"
+            className="max-w-full max-h-full object-contain transition-opacity duration-300"
+            onClick={(e) => e.stopPropagation()}
           />
+
+          {/* Navigation Arrows - only show if there are multiple images */}
+          {fullscreenArtworks.length > 1 && (
+            <>
+              {/* Previous Button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); fullscreenPrev(); }}
+                disabled={fullscreenIndex === 0}
+                className={`absolute left-4 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+                  fullscreenIndex === 0
+                    ? 'bg-white/5 text-white/20 cursor-not-allowed'
+                    : 'bg-white/10 hover:bg-white/20 text-white hover:scale-110'
+                }`}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+
+              {/* Next Button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); fullscreenNext(); }}
+                disabled={fullscreenIndex === fullscreenArtworks.length - 1}
+                className={`absolute right-4 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+                  fullscreenIndex === fullscreenArtworks.length - 1
+                    ? 'bg-white/5 text-white/20 cursor-not-allowed'
+                    : 'bg-white/10 hover:bg-white/20 text-white hover:scale-110'
+                }`}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </>
+          )}
+
+          {/* Close Button */}
           <button
             onClick={() => setFullscreenImage(null)}
             className="absolute top-6 right-6 w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/20 transition-all"
@@ -3074,8 +3443,50 @@ export default function ArtGallery() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/50 text-sm">
-            Tap anywhere to close
+
+          {/* Star/Favorite button in fullscreen */}
+          {fullscreenArtworks[fullscreenIndex] && (
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleFavorite(fullscreenArtworks[fullscreenIndex].id); }}
+              className={`absolute top-6 left-6 w-12 h-12 rounded-full backdrop-blur-sm flex items-center justify-center transition-all ${
+                isFavorite(fullscreenArtworks[fullscreenIndex]?.id)
+                  ? 'bg-amber-500 text-black'
+                  : 'bg-white/10 text-white hover:bg-white/20'
+              }`}
+            >
+              <svg
+                className="w-6 h-6"
+                fill={isFavorite(fullscreenArtworks[fullscreenIndex]?.id) ? 'currentColor' : 'none'}
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              </svg>
+            </button>
+          )}
+
+          {/* Bottom Info Bar */}
+          <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80 to-transparent">
+            <div className="flex items-center justify-between">
+              <div>
+                {fullscreenArtworks[fullscreenIndex] && (
+                  <>
+                    <h3 className="text-lg font-semibold text-white">{fullscreenArtworks[fullscreenIndex].title}</h3>
+                    <p className="text-white/50 text-sm">{fullscreenArtworks[fullscreenIndex].artist}</p>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                {fullscreenArtworks.length > 1 && (
+                  <span className="px-3 py-1.5 rounded-full bg-white/10 text-sm text-white/70">
+                    {fullscreenIndex + 1} / {fullscreenArtworks.length}
+                  </span>
+                )}
+                <span className="text-white/40 text-sm hidden sm:inline">
+                  Use arrow keys or swipe to navigate
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       )}
