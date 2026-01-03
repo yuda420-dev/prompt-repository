@@ -160,6 +160,7 @@ export default function ArtGallery() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingArt, setEditingArt] = useState(null);
   const [showAbout, setShowAbout] = useState(false);
+  const [fullscreenImage, setFullscreenImage] = useState(null);
 
   // Upload questionnaire state
   const [pendingUploads, setPendingUploads] = useState([]);
@@ -565,24 +566,30 @@ export default function ArtGallery() {
   // Delete artwork
   const deleteArtworkFromDB = async (id) => {
     if (!isSupabaseConfigured()) {
-      // Demo mode
-      const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
-      const filtered = savedArtworks.filter(a => a.id !== id);
-      localStorage.setItem('hiperGalleryArtworks', JSON.stringify(filtered));
       return true;
     }
 
     try {
-      const { error } = await supabase
+      // Admin can delete any artwork, artists can only delete their own
+      const isUserAdmin = getUserRole(user) === USER_ROLES.ADMIN;
+
+      let query = supabase
         .from('artworks')
         .delete()
-        .eq('id', id)
-        .eq('user_id', user.id);
+        .eq('id', id);
+
+      // Non-admin users can only delete their own artworks
+      if (!isUserAdmin) {
+        query = query.eq('user_id', user.id);
+      }
+
+      const { error } = await query;
 
       if (error) throw error;
       return true;
     } catch (err) {
       console.error('Error deleting artwork:', err);
+      showToastMessage('Failed to delete artwork', 'error');
       return false;
     }
   };
@@ -1439,77 +1446,75 @@ export default function ArtGallery() {
             {/* Gallery Items - Series Folders & Standalone Artworks */}
             {galleryItems.map((item, index) => (
               item.type === 'series' ? (
-                // Series Folder Card with blended preview
+                // Series Card - Stacked Deck Style
                 <article
                   key={`series-${item.name}`}
                   onClick={() => openSeriesFolder(item)}
-                  className="group relative bg-[#111113] rounded-3xl overflow-hidden cursor-pointer transition-all duration-500 hover:shadow-2xl hover:shadow-amber-500/20 ring-2 ring-amber-500/30 hover:ring-amber-500/60"
+                  className="group relative cursor-pointer transition-all duration-500"
                   style={{ animationDelay: `${index * 100}ms` }}
                 >
-                  {/* Series badge */}
-                  <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] text-xs font-bold rounded-full flex items-center gap-1.5">
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                    </svg>
-                    {item.artworks.length} Pieces
-                  </div>
-
-                  <div className="aspect-[4/5] relative overflow-hidden">
-                    {/* Blended multi-image preview */}
-                    <div className="absolute inset-0">
-                      {item.artworks.slice(0, 4).map((art, i) => {
-                        const positions = [
-                          { top: '0%', left: '0%', width: '70%', height: '70%', zIndex: 4, rotate: '-3deg' },
-                          { top: '10%', left: '35%', width: '65%', height: '65%', zIndex: 3, rotate: '2deg' },
-                          { top: '25%', left: '5%', width: '60%', height: '60%', zIndex: 2, rotate: '-1deg' },
-                          { top: '30%', left: '40%', width: '55%', height: '55%', zIndex: 1, rotate: '4deg' },
-                        ];
-                        const pos = positions[i] || positions[3];
-                        return (
-                          <div
-                            key={art.id}
-                            className="absolute rounded-xl overflow-hidden shadow-2xl border-2 border-white/10 transition-all duration-500 group-hover:border-amber-500/30"
-                            style={{
-                              top: pos.top,
-                              left: pos.left,
-                              width: pos.width,
-                              height: pos.height,
-                              zIndex: pos.zIndex,
-                              transform: `rotate(${pos.rotate})`,
-                            }}
-                          >
+                  <div className="aspect-[4/5] relative">
+                    {/* Stacked cards behind - show peek of cards below */}
+                    {item.artworks.slice(1, 4).reverse().map((art, i) => {
+                      const reverseIndex = Math.min(item.artworks.length - 1, 3) - i - 1;
+                      const offset = (reverseIndex + 1) * 8;
+                      const scale = 1 - (reverseIndex + 1) * 0.03;
+                      return (
+                        <div
+                          key={art.id}
+                          className="absolute inset-x-0 top-0 rounded-2xl overflow-hidden shadow-lg transition-all duration-500"
+                          style={{
+                            transform: `translateY(${offset}px) scale(${scale})`,
+                            zIndex: 3 - reverseIndex,
+                            opacity: 0.9 - reverseIndex * 0.15,
+                          }}
+                        >
+                          <div className="aspect-[4/5] bg-[#1a1a1c]">
                             <img
                               src={art.image}
-                              alt={art.title}
-                              className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                              alt=""
+                              className="w-full h-full object-cover opacity-60"
                             />
                           </div>
-                        );
-                      })}
-                    </div>
+                        </div>
+                      );
+                    })}
 
-                    {/* Gradient overlays for blending */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/40 to-transparent" />
-                    <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-orange-500/10 mix-blend-overlay" />
+                    {/* Top card - main visible card */}
+                    <div className="relative rounded-2xl overflow-hidden shadow-2xl ring-2 ring-amber-500/40 group-hover:ring-amber-500/70 transition-all duration-500 group-hover:shadow-amber-500/20 z-10">
+                      <div className="aspect-[4/5] relative">
+                        <img
+                          src={item.artworks[0]?.image}
+                          alt={item.artworks[0]?.title}
+                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                        />
 
-                    {/* Hover overlay */}
-                    <div className="absolute inset-0 bg-[#0a0a0b]/60 opacity-0 group-hover:opacity-100 transition-all duration-500 flex items-center justify-center">
-                      <div className="transform translate-y-4 group-hover:translate-y-0 transition-transform duration-500 flex flex-col items-center gap-2">
-                        <span className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] rounded-full text-sm font-bold">
-                          Open Series
-                        </span>
-                        <span className="text-white/50 text-xs">Click to browse all pieces</span>
-                      </div>
-                    </div>
+                        {/* Series badge */}
+                        <div className="absolute top-4 left-4 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] text-xs font-bold rounded-full flex items-center gap-1.5 shadow-lg">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                          </svg>
+                          {item.artworks.length}
+                        </div>
 
-                    {/* Info overlay */}
-                    <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
-                      <div className="transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
-                        <span className="inline-block px-3 py-1 rounded-full bg-amber-500/20 backdrop-blur-sm text-xs text-amber-400 mb-3 capitalize">
-                          {item.category} Series
-                        </span>
-                        <h3 className="text-xl font-semibold text-white mb-1">{item.name}</h3>
-                        <p className="text-amber-400 font-medium">{item.artworks.length} artworks</p>
+                        {/* Gradient overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+
+                        {/* Info at bottom */}
+                        <div className="absolute bottom-0 left-0 right-0 p-5">
+                          <span className="inline-block px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-sm text-xs text-white/70 mb-2 capitalize">
+                            {item.category}
+                          </span>
+                          <h3 className="text-lg font-semibold text-white mb-1 line-clamp-1">{item.name}</h3>
+                          <p className="text-amber-400 text-sm font-medium">{item.artworks.length} artworks</p>
+                        </div>
+
+                        {/* Tap to open indicator */}
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center">
+                          <span className="px-5 py-2.5 bg-white text-black rounded-full text-sm font-semibold shadow-xl">
+                            View Series
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2804,6 +2809,16 @@ export default function ArtGallery() {
                   </span>
                 </div>
 
+                {/* Fullscreen button */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setFullscreenImage(selectedArt.image); }}
+                  className="absolute bottom-4 right-4 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white/80 hover:bg-black/70 hover:text-white transition-all"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                </button>
+
                 {/* Series badge if part of series */}
                 {selectedArt.seriesName && (
                   <div className="absolute top-4 right-4">
@@ -2963,6 +2978,31 @@ export default function ArtGallery() {
             )}
           </aside>
         </>
+      )}
+
+      {/* Fullscreen Image View */}
+      {fullscreenImage && (
+        <div
+          className="fixed inset-0 z-[100] bg-black flex items-center justify-center"
+          onClick={() => setFullscreenImage(null)}
+        >
+          <img
+            src={fullscreenImage}
+            alt="Fullscreen view"
+            className="max-w-full max-h-full object-contain"
+          />
+          <button
+            onClick={() => setFullscreenImage(null)}
+            className="absolute top-6 right-6 w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/20 transition-all"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/50 text-sm">
+            Tap anywhere to close
+          </div>
+        </div>
       )}
 
       {/* Toast */}
