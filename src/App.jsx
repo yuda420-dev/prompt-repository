@@ -1092,7 +1092,9 @@ export default function ArtGallery() {
   const deleteArtwork = async (id, e) => {
     e.stopPropagation();
     const art = artworks.find(a => a.id === id);
-    if (!user || art?.isDefault) return;
+    if (!user) return;
+    // Only admin can delete defaults
+    if (art?.isDefault && getUserRole(user) !== USER_ROLES.ADMIN) return;
 
     const success = await deleteArtworkFromDB(id);
     if (success) {
@@ -1528,8 +1530,9 @@ export default function ArtGallery() {
                   )}
 
                   {/* Edit & Delete buttons - based on user permissions (admin can edit/delete all) */}
+                  {/* Always visible for admin, hover for others (touch-friendly) */}
                   {(canEdit(user, item) || canDelete(user, item)) && (!item.isDefault || getUserRole(user) === USER_ROLES.ADMIN) && (
-                    <div className="absolute top-4 right-4 z-10 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <div className={`absolute top-4 right-4 z-10 flex gap-2 transition-opacity duration-300 ${getUserRole(user) === USER_ROLES.ADMIN ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                       {canEdit(user, item) && (
                         <button
                           onClick={(e) => openEditModal(item, e)}
