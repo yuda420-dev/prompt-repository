@@ -42,8 +42,16 @@ const ROLE_LABELS = {
   viewer: 'Viewer',
 };
 
+// Admin email
+const ADMIN_EMAIL = 'hiper.6258@gmail.com';
+
 // Permission helpers - get role from Supabase user_metadata or direct property
-const getUserRole = (user) => user?.user_metadata?.role || user?.role || USER_ROLES.ARTIST;
+const getUserRole = (user) => {
+  if (!user) return null;
+  // Check if user is the admin
+  if (user.email === ADMIN_EMAIL) return USER_ROLES.ADMIN;
+  return user?.user_metadata?.role || user?.role || USER_ROLES.ARTIST;
+};
 const canUpload = (user) => {
   if (!user) return false;
   const role = getUserRole(user);
@@ -1519,8 +1527,8 @@ export default function ArtGallery() {
                     </div>
                   )}
 
-                  {/* Edit & Delete buttons - based on user permissions */}
-                  {(canEdit(user, item) || canDelete(user, item)) && !item.isDefault && (
+                  {/* Edit & Delete buttons - based on user permissions (admin can edit/delete all) */}
+                  {(canEdit(user, item) || canDelete(user, item)) && (!item.isDefault || getUserRole(user) === USER_ROLES.ADMIN) && (
                     <div className="absolute top-4 right-4 z-10 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                       {canEdit(user, item) && (
                         <button
