@@ -2,14 +2,15 @@ import { useState, useRef, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 
 const defaultArtworks = [
-  { id: 1, title: "Ethereal Dreams", artist: "HiPeR Gallery", style: "Abstract Expressionism", category: "abstract", description: "A mesmerizing exploration of color and form, where dreams meet reality in an ethereal dance of light.", price: 249, image: "https://images.unsplash.com/photo-1541961017774-22349e4a1262?w=800&h=800&fit=crop", isDefault: true },
-  { id: 2, title: "Urban Solitude", artist: "HiPeR Gallery", style: "Contemporary Photography", category: "landscape", description: "Capturing the quiet moments in bustling cityscapes, where architecture meets human emotion.", price: 199, image: "https://images.unsplash.com/photo-1514539079130-25950c84af65?w=800&h=800&fit=crop", isDefault: true },
-  { id: 3, title: "Nature's Whisper", artist: "HiPeR Gallery", style: "Fine Art Nature", category: "nature", description: "An intimate portrait of nature's delicate beauty, frozen in a moment of perfect serenity.", price: 279, image: "https://images.unsplash.com/photo-1518882605630-8b17b9c1d406?w=800&h=800&fit=crop", isDefault: true },
-  { id: 4, title: "Digital Renaissance", artist: "HiPeR Gallery", style: "Digital Art / AI", category: "portrait", description: "Where classical artistry meets cutting-edge technology in a stunning visual synthesis.", price: 349, image: "https://images.unsplash.com/photo-1634017839464-5c339bbe3c35?w=800&h=800&fit=crop", isDefault: true },
-  { id: 5, title: "Cosmic Reverie", artist: "HiPeR Gallery", style: "Surrealist Digital", category: "surreal", description: "Journey through impossible landscapes where physics bends to imagination.", price: 299, image: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?w=800&h=800&fit=crop", isDefault: true },
-  { id: 6, title: "Chromatic Flow", artist: "HiPeR Gallery", style: "Abstract Fluid Art", category: "abstract", description: "Vibrant colors cascade and merge in this hypnotic study of movement and harmony.", price: 229, image: "https://images.unsplash.com/photo-1567095761054-7a02e69e5c43?w=800&h=800&fit=crop", isDefault: true },
+  { id: 1, title: "Ethereal Dreams", artist: "HiPeR Gallery", style: "Abstract Expressionism", category: "abstract", description: "A mesmerizing exploration of color and form, where dreams meet reality in an ethereal dance of light.", image: "https://images.unsplash.com/photo-1541961017774-22349e4a1262?w=800&h=800&fit=crop", isDefault: true },
+  { id: 2, title: "Urban Solitude", artist: "HiPeR Gallery", style: "Contemporary Photography", category: "landscape", description: "Capturing the quiet moments in bustling cityscapes, where architecture meets human emotion.", image: "https://images.unsplash.com/photo-1514539079130-25950c84af65?w=800&h=800&fit=crop", isDefault: true },
+  { id: 3, title: "Nature's Whisper", artist: "HiPeR Gallery", style: "Fine Art Nature", category: "nature", description: "An intimate portrait of nature's delicate beauty, frozen in a moment of perfect serenity.", image: "https://images.unsplash.com/photo-1518882605630-8b17b9c1d406?w=800&h=800&fit=crop", isDefault: true },
+  { id: 4, title: "Digital Renaissance", artist: "HiPeR Gallery", style: "Digital Art / AI", category: "portrait", description: "Where classical artistry meets cutting-edge technology in a stunning visual synthesis.", image: "https://images.unsplash.com/photo-1634017839464-5c339bbe3c35?w=800&h=800&fit=crop", isDefault: true },
+  { id: 5, title: "Cosmic Reverie", artist: "HiPeR Gallery", style: "Surrealist Digital", category: "surreal", description: "Journey through impossible landscapes where physics bends to imagination.", image: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?w=800&h=800&fit=crop", isDefault: true },
+  { id: 6, title: "Chromatic Flow", artist: "HiPeR Gallery", style: "Abstract Fluid Art", category: "abstract", description: "Vibrant colors cascade and merge in this hypnotic study of movement and harmony.", image: "https://images.unsplash.com/photo-1567095761054-7a02e69e5c43?w=800&h=800&fit=crop", isDefault: true },
 ];
 
+// Sizes and frames - kept for future shop feature
 const sizes = [
   { name: "Small", dimensions: '12" × 12"', price: 149, desc: "Perfect for intimate spaces" },
   { name: "Medium", dimensions: '24" × 24"', price: 299, desc: "Ideal statement piece" },
@@ -27,6 +28,35 @@ const frames = [
 ];
 
 const categories = ['abstract', 'surreal', 'nature', 'portrait', 'landscape'];
+
+// User roles
+const USER_ROLES = {
+  ADMIN: 'admin',      // Can manage all artworks, users, and settings
+  ARTIST: 'artist',    // Can upload, edit, delete their own artworks
+  VIEWER: 'viewer',    // Can only view artworks, no upload/edit
+};
+
+const ROLE_LABELS = {
+  admin: 'Administrator',
+  artist: 'Artist',
+  viewer: 'Viewer',
+};
+
+// Permission helpers
+const canUpload = (user) => user && (user.role === USER_ROLES.ADMIN || user.role === USER_ROLES.ARTIST);
+const canEdit = (user, artwork) => {
+  if (!user) return false;
+  if (user.role === USER_ROLES.ADMIN) return true;
+  if (user.role === USER_ROLES.ARTIST && artwork.userId === user.id) return true;
+  return false;
+};
+const canDelete = (user, artwork) => {
+  if (!user) return false;
+  if (user.role === USER_ROLES.ADMIN) return true;
+  if (user.role === USER_ROLES.ARTIST && artwork.userId === user.id) return true;
+  return false;
+};
+const isAdmin = (user) => user && user.role === USER_ROLES.ADMIN;
 
 const moodOptions = ['Peaceful', 'Energetic', 'Mysterious', 'Joyful', 'Melancholic', 'Dramatic', 'Playful', 'Contemplative'];
 const themeOptions = ['Love', 'Nature', 'Identity', 'Dreams', 'Time', 'Freedom', 'Connection', 'Solitude', 'Transformation', 'Memory'];
@@ -99,6 +129,7 @@ export default function ArtGallery() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authName, setAuthName] = useState('');
+  const [authRole, setAuthRole] = useState(USER_ROLES.ARTIST); // Default to artist
   const [authError, setAuthError] = useState('');
   const [authSubmitting, setAuthSubmitting] = useState(false);
 
@@ -139,6 +170,10 @@ export default function ArtGallery() {
   const [seriesName, setSeriesName] = useState('');
   const [seriesDescription, setSeriesDescription] = useState('');
   const [seriesCategory, setSeriesCategory] = useState('abstract');
+
+  // Series folder viewing state
+  const [openSeries, setOpenSeries] = useState(null); // { name, artworks, currentIndex }
+  const [seriesViewIndex, setSeriesViewIndex] = useState(0);
   const [individualNotes, setIndividualNotes] = useState({}); // { index: { title, note } }
   const [seriesStep, setSeriesStep] = useState(0); // 0: choose mode, 1: series info, 2: individual notes, 3: review
 
@@ -165,7 +200,6 @@ export default function ArtGallery() {
         style: art.style,
         category: art.category,
         description: art.description,
-        price: art.price,
         image: art.image,
         seriesName: art.seriesName || null,
         createdAt: art.createdAt || new Date().toISOString(),
@@ -218,8 +252,7 @@ export default function ArtGallery() {
       arts.forEach((art, i) => {
         markdown += `### ${i + 1}. ${art.title}\n\n`;
         markdown += `- **Category:** ${art.category}\n`;
-        markdown += `- **Style:** ${art.style || 'N/A'}\n`;
-        markdown += `- **Price:** $${art.price}\n\n`;
+        markdown += `- **Style:** ${art.style || 'N/A'}\n\n`;
         if (art.description) {
           markdown += `> ${art.description.replace(/\n/g, '\n> ')}\n\n`;
         }
@@ -236,8 +269,7 @@ export default function ArtGallery() {
       standalone.forEach((art, i) => {
         markdown += `### ${i + 1}. ${art.title}\n\n`;
         markdown += `- **Category:** ${art.category}\n`;
-        markdown += `- **Style:** ${art.style || 'N/A'}\n`;
-        markdown += `- **Price:** $${art.price}\n\n`;
+        markdown += `- **Style:** ${art.style || 'N/A'}\n\n`;
         if (art.description) {
           markdown += `> ${art.description.replace(/\n/g, '\n> ')}\n\n`;
         }
@@ -395,6 +427,24 @@ export default function ArtGallery() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Keyboard navigation for series carousel
+  useEffect(() => {
+    if (!openSeries) return;
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'ArrowLeft') {
+        prevSeriesArt();
+      } else if (e.key === 'ArrowRight') {
+        nextSeriesArt();
+      } else if (e.key === 'Escape') {
+        closeSeriesFolder();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [openSeries, seriesViewIndex]);
+
   // Load artworks from localStorage (demo mode)
   const loadArtworksFromStorage = () => {
     const savedArtworks = localStorage.getItem('hiperGalleryArtworks');
@@ -423,7 +473,6 @@ export default function ArtGallery() {
           style: art.category,
           category: art.category?.toLowerCase() || 'abstract',
           description: art.description,
-          price: parseFloat(art.base_price) || 249,
           image: art.image_url,
           isDefault: art.is_default,
           isNew: !art.is_default && art.user_id === userId,
@@ -480,7 +529,6 @@ export default function ArtGallery() {
           description: artwork.description,
           category: artwork.category,
           image_url: imageUrl,
-          base_price: artwork.price || 249,
           is_default: false,
           is_public: true,
         })
@@ -535,18 +583,33 @@ export default function ArtGallery() {
     setAuthSubmitting(true);
 
     if (!isSupabaseConfigured()) {
-      // Demo mode
+      // Demo mode - retrieve stored user with role
+      const storedUser = localStorage.getItem('hiperGalleryUser');
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        if (parsed.email === authEmail) {
+          setUser(parsed);
+          setShowAuthModal(false);
+          setAuthEmail('');
+          setAuthPassword('');
+          showToastMessage(`Welcome back, ${ROLE_LABELS[parsed.role] || 'User'}!`);
+          setAuthSubmitting(false);
+          return;
+        }
+      }
+      // No matching user found, create new with default artist role
       const demoUser = {
         id: Date.now().toString(),
         email: authEmail,
-        name: authName || authEmail.split('@')[0],
+        name: authEmail.split('@')[0],
+        role: USER_ROLES.ARTIST,
       };
       setUser(demoUser);
       localStorage.setItem('hiperGalleryUser', JSON.stringify(demoUser));
       setShowAuthModal(false);
       setAuthEmail('');
       setAuthPassword('');
-      showToastMessage('Welcome back!');
+      showToastMessage(`Welcome, ${ROLE_LABELS[demoUser.role]}!`);
       setAuthSubmitting(false);
       return;
     }
@@ -581,6 +644,7 @@ export default function ArtGallery() {
         id: Date.now().toString(),
         email: authEmail,
         name: authName || authEmail.split('@')[0],
+        role: authRole,
       };
       setUser(demoUser);
       localStorage.setItem('hiperGalleryUser', JSON.stringify(demoUser));
@@ -588,7 +652,8 @@ export default function ArtGallery() {
       setAuthEmail('');
       setAuthPassword('');
       setAuthName('');
-      showToastMessage('Welcome to HiPeR Gallery!');
+      setAuthRole(USER_ROLES.ARTIST);
+      showToastMessage(`Welcome to HiPeR Gallery as ${ROLE_LABELS[authRole]}!`);
       setAuthSubmitting(false);
       return;
     }
@@ -600,6 +665,7 @@ export default function ArtGallery() {
         options: {
           data: {
             name: authName,
+            role: authRole,
           },
         },
       });
@@ -610,6 +676,7 @@ export default function ArtGallery() {
       setAuthEmail('');
       setAuthPassword('');
       setAuthName('');
+      setAuthRole(USER_ROLES.ARTIST);
       showToastMessage('Account created! Check your email to confirm.');
     } catch (err) {
       setAuthError(err.message);
@@ -646,6 +713,67 @@ export default function ArtGallery() {
   const filteredArt = filter === 'all' ? visibleArtworks : visibleArtworks.filter(a => a.category === filter);
   const hasMoreArtworks = !user && artworks.length > PREVIEW_LIMIT;
 
+  // Group artworks by series for folder display
+  const getGalleryItems = () => {
+    const seriesMap = {};
+    const standalone = [];
+
+    filteredArt.forEach(art => {
+      if (art.seriesName) {
+        if (!seriesMap[art.seriesName]) {
+          seriesMap[art.seriesName] = {
+            type: 'series',
+            name: art.seriesName,
+            artworks: [],
+            category: art.category,
+          };
+        }
+        seriesMap[art.seriesName].artworks.push(art);
+      } else {
+        standalone.push({ type: 'artwork', ...art });
+      }
+    });
+
+    // Convert series map to array and interleave with standalone
+    const seriesFolders = Object.values(seriesMap);
+    const items = [...seriesFolders, ...standalone];
+
+    // Sort by newest first (using first artwork's id for series)
+    items.sort((a, b) => {
+      const aId = a.type === 'series' ? Math.max(...a.artworks.map(x => x.id)) : a.id;
+      const bId = b.type === 'series' ? Math.max(...b.artworks.map(x => x.id)) : b.id;
+      return bId - aId;
+    });
+
+    return items;
+  };
+
+  const galleryItems = getGalleryItems();
+
+  // Open a series folder
+  const openSeriesFolder = (series) => {
+    setOpenSeries(series);
+    setSeriesViewIndex(0);
+  };
+
+  // Navigate within series
+  const nextSeriesArt = () => {
+    if (openSeries && seriesViewIndex < openSeries.artworks.length - 1) {
+      setSeriesViewIndex(prev => prev + 1);
+    }
+  };
+
+  const prevSeriesArt = () => {
+    if (openSeries && seriesViewIndex > 0) {
+      setSeriesViewIndex(prev => prev - 1);
+    }
+  };
+
+  const closeSeriesFolder = () => {
+    setOpenSeries(null);
+    setSeriesViewIndex(0);
+  };
+
   const showToastMessage = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
@@ -655,11 +783,15 @@ export default function ArtGallery() {
     galleryRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // Handle multiple file selection - requires login
+  // Handle multiple file selection - requires upload permission
   const handleFileSelect = (e) => {
-    if (!user) {
-      setShowAuthModal(true);
-      showToastMessage('Please log in to upload artwork', 'error');
+    if (!canUpload(user)) {
+      if (!user) {
+        setShowAuthModal(true);
+        showToastMessage('Please log in to upload artwork', 'error');
+      } else {
+        showToastMessage('Viewers cannot upload artwork. Please sign up as an Artist.', 'error');
+      }
       return;
     }
 
@@ -724,7 +856,6 @@ export default function ArtGallery() {
         description: notes.note
           ? `${seriesDescription}\n\n---\n\n${notes.note}`
           : seriesDescription,
-        price: 149,
         image: upload.preview,
         isNew: true,
         seriesName: seriesName,
@@ -827,7 +958,6 @@ export default function ArtGallery() {
       style: `${answers.style} / ${answers.mood}`,
       category: selectedCategory,
       description: generatedDescription,
-      price: 149,
       image: currentUpload.preview,
       isNew: true
     };
@@ -926,7 +1056,6 @@ export default function ArtGallery() {
             title: editingArt.title,
             description: editingArt.description,
             category: editingArt.category,
-            base_price: editingArt.price,
           })
           .eq('id', editingArt.id)
           .eq('user_id', user.id);
@@ -1108,30 +1237,51 @@ export default function ArtGallery() {
 
           <nav className="hidden md:flex items-center gap-8">
             <button onClick={scrollToGallery} className="text-sm text-white/60 hover:text-white transition-colors">Collection</button>
-            <button onClick={() => user ? fileInputRef.current?.click() : setShowAuthModal(true)} className="text-sm text-white/60 hover:text-white transition-colors">Upload</button>
+            {canUpload(user) && (
+              <button onClick={() => fileInputRef.current?.click()} className="text-sm text-white/60 hover:text-white transition-colors">Upload</button>
+            )}
             <button onClick={() => setShowAbout(true)} className="text-sm text-white/60 hover:text-white transition-colors">About</button>
           </nav>
 
           <div className="flex items-center gap-3">
             {user ? (
               <>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="group flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] font-medium text-sm transition-all duration-300 hover:shadow-lg hover:shadow-amber-500/25 hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  <svg className="w-4 h-4 transition-transform group-hover:rotate-90 duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-                  </svg>
-                  <span>Upload</span>
-                </button>
+                {canUpload(user) && (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="group flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] font-medium text-sm transition-all duration-300 hover:shadow-lg hover:shadow-amber-500/25 hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <svg className="w-4 h-4 transition-transform group-hover:rotate-90 duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span>Upload</span>
+                  </button>
+                )}
                 <div className="relative group">
                   <button className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all">
                     <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-xs font-bold text-[#0a0a0b]">
                       {user.email?.[0]?.toUpperCase() || 'A'}
                     </div>
-                    <span className="text-sm text-white/70 hidden sm:block">{user.email?.split('@')[0]}</span>
+                    <span className="text-sm text-white/70 hidden sm:block">{user.name || user.email?.split('@')[0]}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full hidden sm:block ${
+                      user.role === USER_ROLES.ADMIN ? 'bg-red-500/20 text-red-400' :
+                      user.role === USER_ROLES.ARTIST ? 'bg-amber-500/20 text-amber-400' :
+                      'bg-blue-500/20 text-blue-400'
+                    }`}>
+                      {ROLE_LABELS[user.role] || 'Artist'}
+                    </span>
                   </button>
                   <div className="absolute right-0 mt-2 w-48 py-2 bg-[#1a1a1c] rounded-xl border border-white/10 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300">
+                    {/* Role badge in dropdown for mobile */}
+                    <div className="px-4 py-2 border-b border-white/10 sm:hidden">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        user.role === USER_ROLES.ADMIN ? 'bg-red-500/20 text-red-400' :
+                        user.role === USER_ROLES.ARTIST ? 'bg-amber-500/20 text-amber-400' :
+                        'bg-blue-500/20 text-blue-400'
+                      }`}>
+                        {ROLE_LABELS[user.role] || 'Artist'}
+                      </span>
+                    </div>
                     <button
                       onClick={() => setShowSettings(true)}
                       className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
@@ -1159,7 +1309,8 @@ export default function ArtGallery() {
                 <span>Sign In</span>
               </button>
             )}
-            <button
+            {/* Cart button - hidden for now, will enable with shop features later */}
+            {/* <button
               onClick={() => setShowCart(true)}
               className="relative flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300"
             >
@@ -1171,7 +1322,7 @@ export default function ArtGallery() {
                   {cart.length}
                 </span>
               )}
-            </button>
+            </button> */}
           </div>
         </div>
       </header>
@@ -1254,8 +1405,8 @@ export default function ArtGallery() {
       <main className="px-6 lg:px-8 pb-32">
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-            {/* Upload Card - only show when logged in */}
-            {user && (
+            {/* Upload Card - only show for users with upload permission (Admin/Artist) */}
+            {canUpload(user) && (
               <article
                 onClick={() => fileInputRef.current?.click()}
                 className="group relative bg-gradient-to-br from-white/[0.03] to-transparent rounded-3xl overflow-hidden border border-dashed border-white/10 hover:border-amber-500/40 cursor-pointer transition-all duration-500 hover:shadow-2xl hover:shadow-amber-500/5"
@@ -1272,72 +1423,154 @@ export default function ArtGallery() {
               </article>
             )}
 
-            {/* Artwork Cards */}
-            {filteredArt.map((art, index) => (
-              <article
-                key={art.id}
-                onClick={() => openArtDetail(art)}
-                className={`group relative bg-[#111113] rounded-3xl overflow-hidden cursor-pointer transition-all duration-500 hover:shadow-2xl hover:shadow-black/50 ${art.isNew ? 'ring-2 ring-amber-500/50' : ''}`}
-                style={{ animationDelay: `${index * 100}ms` }}
-              >
-                {/* New badge */}
-                {art.isNew && (
-                  <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-amber-500 text-[#0a0a0b] text-xs font-bold rounded-full">
-                    NEW
+            {/* Gallery Items - Series Folders & Standalone Artworks */}
+            {galleryItems.map((item, index) => (
+              item.type === 'series' ? (
+                // Series Folder Card with blended preview
+                <article
+                  key={`series-${item.name}`}
+                  onClick={() => openSeriesFolder(item)}
+                  className="group relative bg-[#111113] rounded-3xl overflow-hidden cursor-pointer transition-all duration-500 hover:shadow-2xl hover:shadow-amber-500/20 ring-2 ring-amber-500/30 hover:ring-amber-500/60"
+                  style={{ animationDelay: `${index * 100}ms` }}
+                >
+                  {/* Series badge */}
+                  <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] text-xs font-bold rounded-full flex items-center gap-1.5">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                    {item.artworks.length} Pieces
                   </div>
-                )}
 
-                {/* Edit & Delete buttons - only for own non-default artworks */}
-                {user && !art.isDefault && (
-                  <div className="absolute top-4 right-4 z-10 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                    <button
-                      onClick={(e) => openEditModal(art, e)}
-                      className="w-9 h-9 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={(e) => deleteArtwork(art.id, e)}
-                      className="w-9 h-9 rounded-full bg-red-500/20 backdrop-blur-sm flex items-center justify-center hover:bg-red-500/40 transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  </div>
-                )}
+                  <div className="aspect-[4/5] relative overflow-hidden">
+                    {/* Blended multi-image preview */}
+                    <div className="absolute inset-0">
+                      {item.artworks.slice(0, 4).map((art, i) => {
+                        const positions = [
+                          { top: '0%', left: '0%', width: '70%', height: '70%', zIndex: 4, rotate: '-3deg' },
+                          { top: '10%', left: '35%', width: '65%', height: '65%', zIndex: 3, rotate: '2deg' },
+                          { top: '25%', left: '5%', width: '60%', height: '60%', zIndex: 2, rotate: '-1deg' },
+                          { top: '30%', left: '40%', width: '55%', height: '55%', zIndex: 1, rotate: '4deg' },
+                        ];
+                        const pos = positions[i] || positions[3];
+                        return (
+                          <div
+                            key={art.id}
+                            className="absolute rounded-xl overflow-hidden shadow-2xl border-2 border-white/10 transition-all duration-500 group-hover:border-amber-500/30"
+                            style={{
+                              top: pos.top,
+                              left: pos.left,
+                              width: pos.width,
+                              height: pos.height,
+                              zIndex: pos.zIndex,
+                              transform: `rotate(${pos.rotate})`,
+                            }}
+                          >
+                            <img
+                              src={art.image}
+                              alt={art.title}
+                              className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
 
-                <div className="aspect-[4/5] relative overflow-hidden">
-                  <img
-                    src={art.image}
-                    alt={art.title}
-                    className="w-full h-full object-cover transition-all duration-700 group-hover:scale-110"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/20 to-transparent opacity-60" />
+                    {/* Gradient overlays for blending */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/40 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-orange-500/10 mix-blend-overlay" />
 
-                  {/* Hover overlay */}
-                  <div className="absolute inset-0 bg-[#0a0a0b]/60 opacity-0 group-hover:opacity-100 transition-all duration-500 flex items-center justify-center">
-                    <div className="transform translate-y-4 group-hover:translate-y-0 transition-transform duration-500">
-                      <span className="px-6 py-3 bg-white text-[#0a0a0b] rounded-full text-sm font-medium">
-                        View Details
-                      </span>
+                    {/* Hover overlay */}
+                    <div className="absolute inset-0 bg-[#0a0a0b]/60 opacity-0 group-hover:opacity-100 transition-all duration-500 flex items-center justify-center">
+                      <div className="transform translate-y-4 group-hover:translate-y-0 transition-transform duration-500 flex flex-col items-center gap-2">
+                        <span className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] rounded-full text-sm font-bold">
+                          Open Series
+                        </span>
+                        <span className="text-white/50 text-xs">Click to browse all pieces</span>
+                      </div>
+                    </div>
+
+                    {/* Info overlay */}
+                    <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
+                      <div className="transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+                        <span className="inline-block px-3 py-1 rounded-full bg-amber-500/20 backdrop-blur-sm text-xs text-amber-400 mb-3 capitalize">
+                          {item.category} Series
+                        </span>
+                        <h3 className="text-xl font-semibold text-white mb-1">{item.name}</h3>
+                        <p className="text-amber-400 font-medium">{item.artworks.length} artworks</p>
+                      </div>
                     </div>
                   </div>
+                </article>
+              ) : (
+                // Regular Artwork Card
+                <article
+                  key={item.id}
+                  onClick={() => openArtDetail(item)}
+                  className={`group relative bg-[#111113] rounded-3xl overflow-hidden cursor-pointer transition-all duration-500 hover:shadow-2xl hover:shadow-black/50 ${item.isNew ? 'ring-2 ring-amber-500/50' : ''}`}
+                  style={{ animationDelay: `${index * 100}ms` }}
+                >
+                  {/* New badge */}
+                  {item.isNew && (
+                    <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-amber-500 text-[#0a0a0b] text-xs font-bold rounded-full">
+                      NEW
+                    </div>
+                  )}
 
-                  {/* Info overlay */}
-                  <div className="absolute bottom-0 left-0 right-0 p-6">
-                    <div className="transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
-                      <span className="inline-block px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm text-xs text-white/70 mb-3">
-                        {art.style}
-                      </span>
-                      <h3 className="text-xl font-semibold text-white mb-1">{art.title}</h3>
-                      <p className="text-amber-400 font-medium">From ${art.price}</p>
+                  {/* Edit & Delete buttons - based on user permissions */}
+                  {(canEdit(user, item) || canDelete(user, item)) && !item.isDefault && (
+                    <div className="absolute top-4 right-4 z-10 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      {canEdit(user, item) && (
+                        <button
+                          onClick={(e) => openEditModal(item, e)}
+                          className="w-9 h-9 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                        </button>
+                      )}
+                      {canDelete(user, item) && (
+                        <button
+                          onClick={(e) => deleteArtwork(item.id, e)}
+                          className="w-9 h-9 rounded-full bg-red-500/20 backdrop-blur-sm flex items-center justify-center hover:bg-red-500/40 transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="aspect-[4/5] relative overflow-hidden">
+                    <img
+                      src={item.image}
+                      alt={item.title}
+                      className="w-full h-full object-cover transition-all duration-700 group-hover:scale-110"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/20 to-transparent opacity-60" />
+
+                    {/* Hover overlay */}
+                    <div className="absolute inset-0 bg-[#0a0a0b]/60 opacity-0 group-hover:opacity-100 transition-all duration-500 flex items-center justify-center">
+                      <div className="transform translate-y-4 group-hover:translate-y-0 transition-transform duration-500">
+                        <span className="px-6 py-3 bg-white text-[#0a0a0b] rounded-full text-sm font-medium">
+                          View Details
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Info overlay */}
+                    <div className="absolute bottom-0 left-0 right-0 p-6">
+                      <div className="transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+                        <span className="inline-block px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm text-xs text-white/70 mb-3">
+                          {item.style}
+                        </span>
+                        <h3 className="text-xl font-semibold text-white mb-1">{item.title}</h3>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </article>
+                </article>
+              )
             ))}
           </div>
 
@@ -1363,6 +1596,165 @@ export default function ArtGallery() {
           )}
         </div>
       </main>
+
+      {/* Series Folder Modal - Carousel View */}
+      {openSeries && (
+        <div
+          className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex items-center justify-center"
+          onClick={closeSeriesFolder}
+        >
+          <div
+            className="relative w-full max-w-6xl mx-4 h-[90vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6 px-4">
+              <div>
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">{openSeries.name}</h2>
+                    <p className="text-white/40 text-sm">{openSeries.artworks.length} pieces in this series</p>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={closeSeriesFolder}
+                className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Carousel Area */}
+            <div className="flex-1 flex items-center justify-center relative min-h-0">
+              {/* Previous Button */}
+              <button
+                onClick={prevSeriesArt}
+                disabled={seriesViewIndex === 0}
+                className={`absolute left-4 z-20 w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+                  seriesViewIndex === 0
+                    ? 'bg-white/5 text-white/20 cursor-not-allowed'
+                    : 'bg-white/10 hover:bg-white/20 text-white hover:scale-110'
+                }`}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+
+              {/* Cards Stack */}
+              <div className="relative w-full max-w-2xl h-full flex items-center justify-center px-20">
+                {openSeries.artworks.map((art, i) => {
+                  const offset = i - seriesViewIndex;
+                  const isActive = offset === 0;
+                  const isVisible = Math.abs(offset) <= 2;
+
+                  if (!isVisible) return null;
+
+                  return (
+                    <div
+                      key={art.id}
+                      className="absolute w-full transition-all duration-500 ease-out cursor-pointer"
+                      style={{
+                        transform: `
+                          translateX(${offset * 60}px)
+                          scale(${isActive ? 1 : 0.85 - Math.abs(offset) * 0.05})
+                          rotateY(${offset * -5}deg)
+                        `,
+                        zIndex: 10 - Math.abs(offset),
+                        opacity: isActive ? 1 : 0.5 - Math.abs(offset) * 0.15,
+                        filter: isActive ? 'none' : 'brightness(0.7)',
+                      }}
+                      onClick={() => {
+                        if (offset !== 0) {
+                          setSeriesViewIndex(i);
+                        } else {
+                          openArtDetail(art);
+                        }
+                      }}
+                    >
+                      <div className={`bg-[#141416] rounded-3xl overflow-hidden shadow-2xl ${isActive ? 'ring-2 ring-amber-500/50' : ''}`}>
+                        {/* Image */}
+                        <div className="aspect-[4/3] relative overflow-hidden">
+                          <img
+                            src={art.image}
+                            alt={art.title}
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-[#141416] via-transparent to-transparent" />
+
+                          {/* Position indicator */}
+                          <div className="absolute top-4 right-4 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-sm text-xs text-white/80">
+                            {i + 1} / {openSeries.artworks.length}
+                          </div>
+                        </div>
+
+                        {/* Info */}
+                        <div className="p-6">
+                          <h3 className="text-xl font-semibold text-white mb-2">{art.title}</h3>
+                          <p className="text-white/50 text-sm line-clamp-2 mb-4">{art.description}</p>
+                          <div className="flex items-center justify-between">
+                            <span className="px-3 py-1 rounded-full bg-white/10 text-xs text-white/60 capitalize">
+                              {art.category}
+                            </span>
+                            {isActive && (
+                              <span className="text-amber-400 text-sm font-medium">Click to view details</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Next Button */}
+              <button
+                onClick={nextSeriesArt}
+                disabled={seriesViewIndex === openSeries.artworks.length - 1}
+                className={`absolute right-4 z-20 w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+                  seriesViewIndex === openSeries.artworks.length - 1
+                    ? 'bg-white/5 text-white/20 cursor-not-allowed'
+                    : 'bg-white/10 hover:bg-white/20 text-white hover:scale-110'
+                }`}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Dot indicators */}
+            <div className="flex justify-center gap-2 py-6">
+              {openSeries.artworks.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setSeriesViewIndex(i)}
+                  className={`w-2 h-2 rounded-full transition-all ${
+                    i === seriesViewIndex
+                      ? 'bg-amber-500 w-6'
+                      : 'bg-white/20 hover:bg-white/40'
+                  }`}
+                />
+              ))}
+            </div>
+
+            {/* Keyboard hint */}
+            <div className="text-center pb-4">
+              <span className="text-white/30 text-xs">
+                Use arrow keys to navigate or click cards to jump
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Auth Modal */}
       {showAuthModal && (
@@ -1433,6 +1825,34 @@ export default function ArtGallery() {
                   />
                 </div>
 
+                {/* Role Selection - only on signup */}
+                {authMode === 'signup' && (
+                  <div>
+                    <label className="block text-sm text-white/50 mb-2">I am a...</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {Object.entries(USER_ROLES).map(([key, value]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setAuthRole(value)}
+                          className={`p-3 rounded-xl border text-center transition-all duration-300 ${
+                            authRole === value
+                              ? 'border-amber-500 bg-amber-500/10 text-amber-400'
+                              : 'border-white/10 hover:border-white/20 hover:bg-white/5 text-white/60'
+                          }`}
+                        >
+                          <div className="text-sm font-medium">{ROLE_LABELS[value]}</div>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-white/30 mt-2">
+                      {authRole === USER_ROLES.ADMIN && 'Full access to manage gallery and all artworks'}
+                      {authRole === USER_ROLES.ARTIST && 'Upload and manage your own artworks'}
+                      {authRole === USER_ROLES.VIEWER && 'Browse and view the gallery'}
+                    </p>
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   disabled={authSubmitting}
@@ -1468,9 +1888,9 @@ export default function ArtGallery() {
       {/* Upload Questionnaire Modal */}
       {pendingUploads.length > 0 && currentUpload && (
         <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex items-center justify-center p-4">
-          <div className="bg-[#141416] rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
+          <div className="bg-[#141416] rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
             {/* Progress bar */}
-            <div className="h-1 bg-white/10">
+            <div className="h-1 bg-white/10 flex-shrink-0">
               <div
                 className="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500"
                 style={{ width: isSeriesMode
@@ -1482,7 +1902,7 @@ export default function ArtGallery() {
 
             {/* Series Mode Selection - Show when multiple images and step 0 */}
             {pendingUploads.length > 1 && seriesStep === 0 && !isSeriesMode && (
-              <div className="p-8">
+              <div className="p-8 flex-1 overflow-y-auto">
                 <div className="text-center mb-8">
                   <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center mx-auto mb-4">
                     <svg className="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1554,7 +1974,7 @@ export default function ArtGallery() {
 
             {/* Series Mode Flow */}
             {isSeriesMode && seriesStep >= 1 && (
-              <div className="grid md:grid-cols-2 h-full">
+              <div className="grid md:grid-cols-2 flex-1 min-h-0">
                 {/* Left: Image previews grid */}
                 <div className="relative bg-black p-4 overflow-y-auto">
                   <div className="grid grid-cols-2 gap-2">
@@ -1580,7 +2000,7 @@ export default function ArtGallery() {
                 </div>
 
                 {/* Right: Series info or individual notes */}
-                <div className="p-8 flex flex-col h-full overflow-y-auto">
+                <div className="p-8 flex flex-col min-h-0 overflow-y-auto">
                   {seriesStep === 1 && (
                     <>
                       <div className="mb-2 text-xs text-amber-500 font-medium">Series Info</div>
@@ -1865,7 +2285,7 @@ export default function ArtGallery() {
 
             {/* Individual Mode Flow (existing questionnaire) */}
             {(seriesStep === -1 || pendingUploads.length === 1) && (
-              <div className="grid md:grid-cols-2 h-full">
+              <div className="grid md:grid-cols-2 flex-1 min-h-0">
                 {/* Image preview */}
                 <div className="relative aspect-square md:aspect-auto bg-black">
                   <img
@@ -1881,7 +2301,7 @@ export default function ArtGallery() {
                 </div>
 
                 {/* Questions / Approval */}
-                <div className="p-8 flex flex-col h-full overflow-y-auto">
+                <div className="p-8 flex flex-col min-h-0 overflow-y-auto">
                   {questionnaireStep < 5 ? (
                     <>
                       {/* Question step */}
@@ -2316,15 +2736,6 @@ export default function ArtGallery() {
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-sm text-white/50 mb-2">Price ($)</label>
-                    <input
-                      type="number"
-                      value={editingArt.price}
-                      onChange={e => setEditingArt({ ...editingArt, price: parseInt(e.target.value) || 0 })}
-                      className="w-full px-5 py-4 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
-                    />
-                  </div>
                 </div>
               </div>
 
@@ -2366,96 +2777,63 @@ export default function ArtGallery() {
             className={`absolute inset-0 flex items-center justify-center p-4 transition-all duration-300 ${isModalOpen ? 'opacity-100' : 'opacity-0'}`}
             onClick={e => e.stopPropagation()}
           >
-            <div className={`bg-[#141416] rounded-3xl max-w-5xl w-full max-h-[90vh] overflow-hidden shadow-2xl transition-all duration-500 ${isModalOpen ? 'scale-100 translate-y-0' : 'scale-95 translate-y-8'}`}>
-              <div className="grid md:grid-cols-2">
-                {/* Image */}
-                <div className="relative aspect-square md:aspect-auto">
-                  <img src={selectedArt.image} alt={selectedArt.title} className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-[#141416]/50 hidden md:block" />
+            <div className={`bg-[#141416] rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-hidden shadow-2xl transition-all duration-500 ${isModalOpen ? 'scale-100 translate-y-0' : 'scale-95 translate-y-8'}`}>
+              {/* Large Image */}
+              <div className="relative aspect-[4/3] md:aspect-[16/10]">
+                <img src={selectedArt.image} alt={selectedArt.title} className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#141416] via-transparent to-transparent" />
+
+                {/* Category badge */}
+                <div className="absolute top-4 left-4">
+                  <span className="px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-sm text-xs text-white/80 capitalize">
+                    {selectedArt.category}
+                  </span>
                 </div>
 
-                {/* Details */}
-                <div className="p-8 lg:p-10 overflow-y-auto max-h-[90vh] md:max-h-none">
-                  <div className="mb-6">
-                    <span className="inline-block px-3 py-1 rounded-full bg-white/5 text-xs text-white/50 mb-4">{selectedArt.style}</span>
-                    <h2 className="text-3xl font-semibold mb-2">{selectedArt.title}</h2>
-                    <p className="text-white/40 leading-relaxed">{selectedArt.description}</p>
+                {/* Series badge if part of series */}
+                {selectedArt.seriesName && (
+                  <div className="absolute top-4 right-4">
+                    <span className="px-3 py-1.5 rounded-full bg-amber-500/80 backdrop-blur-sm text-xs text-black font-medium">
+                      {selectedArt.seriesName}
+                    </span>
                   </div>
+                )}
+              </div>
 
-                  {/* Size Selection */}
-                  <div className="mb-8">
-                    <label className="block text-sm text-white/50 mb-4">Select Size</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {sizes.map((size, i) => (
-                        <button
-                          key={i}
-                          onClick={() => setSelectedSize(i)}
-                          className={`p-4 rounded-2xl border text-left transition-all duration-300 ${
-                            selectedSize === i
-                              ? 'border-amber-500 bg-amber-500/10'
-                              : 'border-white/10 hover:border-white/20 hover:bg-white/5'
-                          }`}
-                        >
-                          <div className="text-sm font-medium">{size.name}</div>
-                          <div className="text-xs text-white/40 mt-0.5">{size.dimensions}</div>
-                          <div className="text-amber-400 font-semibold mt-2">${size.price}</div>
-                        </button>
-                      ))}
+              {/* Profile Card Content */}
+              <div className="p-6 md:p-8">
+                {/* Title and Artist */}
+                <div className="mb-4">
+                  <h2 className="text-2xl md:text-3xl font-semibold mb-2">{selectedArt.title}</h2>
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-black text-sm font-bold">
+                      {selectedArt.artist?.charAt(0)?.toUpperCase() || 'A'}
+                    </div>
+                    <div>
+                      <p className="text-white/80 text-sm font-medium">{selectedArt.artist}</p>
+                      <p className="text-white/40 text-xs">{selectedArt.style}</p>
                     </div>
                   </div>
+                </div>
 
-                  {/* Frame Selection */}
-                  <div className="mb-8">
-                    <label className="block text-sm text-white/50 mb-4">Frame Style</label>
-                    <div className="grid grid-cols-3 gap-3">
-                      {frames.map((frame, i) => (
-                        <button
-                          key={i}
-                          onClick={() => setSelectedFrame(i)}
-                          className={`p-4 rounded-2xl border text-center transition-all duration-300 ${
-                            selectedFrame === i
-                              ? 'border-amber-500 bg-amber-500/10'
-                              : 'border-white/10 hover:border-white/20 hover:bg-white/5'
-                          }`}
-                        >
-                          <div
-                            className="w-8 h-8 rounded-lg mx-auto mb-2 border-2"
-                            style={{
-                              backgroundColor: frame.color === 'transparent' ? 'transparent' : frame.color,
-                              borderColor: frame.color === 'transparent' ? 'rgba(255,255,255,0.2)' : frame.color
-                            }}
-                          />
-                          <div className="text-xs font-medium">{frame.label}</div>
-                          <div className="text-xs text-white/40 mt-0.5">
-                            {frame.price ? `+$${frame.price}` : 'Included'}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                {/* Description */}
+                <div className="mb-6">
+                  <p className="text-white/60 leading-relaxed">{selectedArt.description}</p>
+                </div>
 
-                  {/* Price Summary */}
-                  <div className="p-5 rounded-2xl bg-white/5 mb-6">
-                    <div className="flex justify-between text-sm text-white/50 mb-2">
-                      <span>Print ({sizes[selectedSize].dimensions})</span>
-                      <span>${sizes[selectedSize].price}</span>
-                    </div>
-                    <div className="flex justify-between text-sm text-white/50 mb-3">
-                      <span>Frame ({frames[selectedFrame].label})</span>
-                      <span>{frames[selectedFrame].price ? `$${frames[selectedFrame].price}` : 'Included'}</span>
-                    </div>
-                    <div className="border-t border-white/10 pt-3 flex justify-between items-center">
-                      <span className="font-medium">Total</span>
-                      <span className="text-2xl font-semibold text-amber-400">${sizes[selectedSize].price + frames[selectedFrame].price}</span>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={addToCart}
-                    className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] font-semibold text-lg hover:shadow-xl hover:shadow-amber-500/25 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    Add to Cart — ${sizes[selectedSize].price + frames[selectedFrame].price}
-                  </button>
+                {/* Meta info */}
+                <div className="flex flex-wrap gap-2">
+                  <span className="px-3 py-1.5 rounded-full bg-white/5 text-xs text-white/50 capitalize">
+                    {selectedArt.category}
+                  </span>
+                  <span className="px-3 py-1.5 rounded-full bg-white/5 text-xs text-white/50">
+                    {selectedArt.style}
+                  </span>
+                  {selectedArt.isNew && (
+                    <span className="px-3 py-1.5 rounded-full bg-green-500/20 text-xs text-green-400">
+                      New
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
