@@ -1742,8 +1742,10 @@ export default function ArtGallery() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#0a0a0b] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-[#0a0a0b] flex flex-col items-center justify-center gap-4">
+        <div className="text-3xl font-light tracking-wider text-white/90">HiPeR</div>
+        <div className="w-10 h-10 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+        <div className="text-sm text-white/40">Loading gallery...</div>
       </div>
     );
   }
@@ -2059,6 +2061,19 @@ export default function ArtGallery() {
             onDragEnd={handleDragEnd}
           >
             <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
+              {orderedGalleryItems.length === 0 ? (
+                <div className="col-span-full flex flex-col items-center justify-center py-20 text-center">
+                  <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
+                    <svg className="w-8 h-8 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-medium text-white/70 mb-2">No artworks found</h3>
+                  <p className="text-sm text-white/40 max-w-sm">
+                    {filter !== 'all' ? 'Try selecting a different category or clearing filters.' : 'Upload your first artwork to get started!'}
+                  </p>
+                </div>
+              ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
                 {/* Gallery Items - Series Folders & Standalone Artworks */}
                 {orderedGalleryItems.map((item, index) => (
@@ -2274,6 +2289,7 @@ export default function ArtGallery() {
                   </SortableArtworkCard>
                 ))}
               </div>
+              )}
             </SortableContext>
           </DndContext>
 
