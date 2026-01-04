@@ -2158,7 +2158,6 @@ export default function ArtGallery() {
                             {item.category}
                           </span>
                           <h3 className="text-lg font-semibold text-white mb-1 line-clamp-1">{item.name}</h3>
-                          <p className="text-amber-400 text-sm font-medium">{item.artworks.length} artworks</p>
                         </div>
 
                         {/* Tap to open indicator */}
