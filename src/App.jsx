@@ -722,12 +722,21 @@ export default function ArtGallery() {
 
       if (error) throw error;
 
-      // Get locally deleted IDs to filter them out
-      const deletedIds = JSON.parse(localStorage.getItem('hiperGalleryDeletedIds') || '[]');
+      // Get locally deleted IDs
+      const localDeletedIds = JSON.parse(localStorage.getItem('hiperGalleryDeletedIds') || '[]');
+
+      // Also get deleted IDs from Supabase (for cross-device sync)
+      const dbDeletedIds = await loadDeletedIdsFromDB();
+
+      // Merge both lists of deleted IDs
+      const allDeletedIds = [...new Set([...localDeletedIds, ...dbDeletedIds])];
+
+      // Update local storage with merged list
+      localStorage.setItem('hiperGalleryDeletedIds', JSON.stringify(allDeletedIds));
 
       if (data && data.length > 0) {
         const formattedArtworks = data
-          .filter(art => !deletedIds.includes(art.id)) // Filter out deleted items
+          .filter(art => !allDeletedIds.includes(art.id)) // Filter out deleted items
           .map(art => ({
             id: art.id,
             title: art.title,
@@ -746,7 +755,7 @@ export default function ArtGallery() {
         // Also load localStorage artworks and merge (for items not in DB)
         const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
         const localOnlyArtworks = savedArtworks.filter(
-          local => !deletedIds.includes(local.id) && !formattedArtworks.some(db => db.id === local.id)
+          local => !allDeletedIds.includes(local.id) && !formattedArtworks.some(db => db.id === local.id)
         );
 
         setArtworks([...formattedArtworks, ...localOnlyArtworks]);
@@ -832,49 +841,70 @@ export default function ArtGallery() {
   const deleteArtworkFromDB = async (id, artwork) => {
     // If Supabase is not configured, just return success (we'll handle localStorage separately)
     if (!isSupabaseConfigured()) {
-      return true;
+      return { success: true, fromDB: false };
     }
 
-    // Default artworks and localStorage-only artworks don't exist in Supabase
-    // Check if this artwork was uploaded to Supabase (has a Supabase-style UUID or was fetched from DB)
-    const isLocalOnly = artwork?.isDefault || artwork?.isLocalStorage || !artwork?.user_id;
+    const isUserAdmin = getUserRole(user) === USER_ROLES.ADMIN;
 
-    if (isLocalOnly) {
-      // This artwork is not in Supabase, just return success
-      return true;
-    }
-
+    // Try to delete from artworks table
     try {
-      // Admin can delete any artwork, artists can only delete their own
-      const isUserAdmin = getUserRole(user) === USER_ROLES.ADMIN;
-
-      let query = supabase
+      const { error } = await supabase
         .from('artworks')
         .delete()
         .eq('id', id);
 
-      // Non-admin users can only delete their own artworks
-      if (!isUserAdmin) {
-        query = query.eq('user_id', user.id);
+      if (!error) {
+        console.log('Successfully deleted from Supabase');
+        return { success: true, fromDB: true };
       }
 
-      const { error } = await query;
-
-      if (error) {
-        console.error('Supabase delete error:', error);
-        // If the error is "no rows affected" or similar, it might just not be in the DB
-        // Still return true to allow local deletion
-        if (error.code === 'PGRST116' || error.message?.includes('no rows')) {
-          return true;
-        }
-        throw error;
-      }
-      return true;
+      console.error('Supabase delete error:', error);
     } catch (err) {
-      console.error('Error deleting artwork from database:', err);
-      // Return true anyway to allow local deletion - the artwork might just not be in Supabase
-      return true;
+      console.error('Error deleting from artworks table:', err);
     }
+
+    // If direct delete failed and user is admin, try to mark as deleted in a separate table
+    if (isUserAdmin) {
+      try {
+        // Try to insert into deleted_artworks table (for cross-device sync)
+        const { error: insertError } = await supabase
+          .from('deleted_artworks')
+          .upsert({
+            artwork_id: id,
+            deleted_by: user.email,
+            deleted_at: new Date().toISOString()
+          });
+
+        if (!insertError) {
+          console.log('Marked as deleted in deleted_artworks table');
+          return { success: true, fromDB: true, markedDeleted: true };
+        }
+        console.error('Could not mark as deleted:', insertError);
+      } catch (err) {
+        console.error('Error marking as deleted:', err);
+      }
+    }
+
+    // Return success anyway - we'll handle it locally
+    return { success: true, fromDB: false };
+  };
+
+  // Load deleted artwork IDs from Supabase (for cross-device sync)
+  const loadDeletedIdsFromDB = async () => {
+    if (!isSupabaseConfigured()) return [];
+
+    try {
+      const { data, error } = await supabase
+        .from('deleted_artworks')
+        .select('artwork_id');
+
+      if (!error && data) {
+        return data.map(d => d.artwork_id);
+      }
+    } catch (err) {
+      console.error('Error loading deleted IDs:', err);
+    }
+    return [];
   };
 
   // Auth functions
