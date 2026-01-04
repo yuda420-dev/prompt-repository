@@ -362,6 +362,7 @@ export default function ArtGallery() {
 
   // Settings/Export state
   const [showSettings, setShowSettings] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   // Touch/swipe state for series carousel
   const [touchStart, setTouchStart] = useState(null);
@@ -1087,18 +1088,25 @@ export default function ArtGallery() {
     const seriesItems = orderedGalleryItems.filter(item => item.type === 'series' && item.artworks.length > 1);
     if (seriesItems.length === 0) return;
 
-    const interval = setInterval(() => {
-      setSeriesDeckRotation(prev => {
-        const next = { ...prev };
-        seriesItems.forEach(series => {
-          const current = prev[series.name] || 0;
-          next[series.name] = (current + 1) % series.artworks.length;
-        });
-        return next;
-      });
-    }, 3000); // Rotate every 3 seconds
+    // Stagger the rotation so cards don't all switch at the same time
+    const timeouts = [];
+    seriesItems.forEach((series, idx) => {
+      // Each series starts rotating at a different offset (0, 3s, 6s stagger)
+      const initialDelay = idx * 3000;
+      const timeout = setTimeout(() => {
+        // Start individual interval for this series
+        const interval = setInterval(() => {
+          setSeriesDeckRotation(prev => ({
+            ...prev,
+            [series.name]: ((prev[series.name] || 0) + 1) % series.artworks.length,
+          }));
+        }, 10000); // Rotate every 10 seconds
+        timeouts.push(interval);
+      }, initialDelay);
+      timeouts.push(timeout);
+    });
 
-    return () => clearInterval(interval);
+    return () => timeouts.forEach(t => clearTimeout(t) || clearInterval(t));
   }, [orderedGalleryItems]);
 
   // Open a series folder
@@ -1500,20 +1508,29 @@ export default function ArtGallery() {
   };
 
   const deleteArtwork = async (id, e) => {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     const art = artworks.find(a => a.id === id);
-    if (!user) return;
+    if (!art) {
+      showToastMessage('Artwork not found', 'error');
+      return;
+    }
+
+    if (!user) {
+      showToastMessage('Please sign in to delete artworks', 'error');
+      return;
+    }
 
     const userRole = getUserRole(user);
 
     // Only admin can delete default artworks
-    if (art?.isDefault && userRole !== USER_ROLES.ADMIN) {
+    if (art.isDefault && userRole !== USER_ROLES.ADMIN) {
       showToastMessage('Only admins can delete gallery artworks', 'error');
       return;
     }
 
-    // Artists can only delete their own artworks
-    if (userRole === USER_ROLES.ARTIST && art?.userId !== user.id) {
+    // Artists can only delete their own artworks (check both userId and user_id)
+    const artOwnerId = art.userId || art.user_id;
+    if (userRole === USER_ROLES.ARTIST && artOwnerId && artOwnerId !== user.id) {
       showToastMessage('You can only delete your own artworks', 'error');
       return;
     }
@@ -1524,10 +1541,23 @@ export default function ArtGallery() {
       return;
     }
 
+    // Confirm before deleting
+    if (!window.confirm(`Are you sure you want to delete "${art.title}"? This cannot be undone.`)) {
+      return;
+    }
+
+    // Delete from database if configured
     const success = await deleteArtworkFromDB(id);
+
     if (success) {
+      // Also remove from localStorage
+      const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
+      const updatedSaved = savedArtworks.filter(a => a.id !== id);
+      localStorage.setItem('hiperGalleryArtworks', JSON.stringify(updatedSaved));
+
+      // Update state
       setArtworks(prev => prev.filter(a => a.id !== id));
-      showToastMessage('Artwork removed');
+      showToastMessage('Artwork deleted successfully');
     }
   };
 
@@ -1701,8 +1731,11 @@ export default function ArtGallery() {
                     <span>Upload</span>
                   </button>
                 )}
-                <div className="relative group">
-                  <button className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowUserMenu(!showUserMenu)}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                  >
                     <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-xs font-bold text-[#0a0a0b]">
                       {user.email?.[0]?.toUpperCase() || 'A'}
                     </div>
@@ -1714,8 +1747,15 @@ export default function ArtGallery() {
                     }`}>
                       {ROLE_LABELS[user.role] || 'Artist'}
                     </span>
+                    <svg className={`w-4 h-4 text-white/50 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
                   </button>
-                  <div className="absolute right-0 mt-2 w-48 py-2 bg-[#1a1a1c] rounded-xl border border-white/10 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300">
+                  {showUserMenu && (
+                    <div
+                      className="absolute right-0 mt-2 w-48 py-2 bg-[#1a1a1c] rounded-xl border border-white/10 shadow-xl z-50"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                     {/* Role badge in dropdown for mobile */}
                     <div className="px-4 py-2 border-b border-white/10 sm:hidden">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
@@ -1728,7 +1768,7 @@ export default function ArtGallery() {
                     </div>
                     {/* My Favorites */}
                     <button
-                      onClick={() => { setFilter('favorites'); setShowUserMenu && setShowUserMenu(false); }}
+                      onClick={() => { setFilter('favorites'); setShowUserMenu(false); }}
                       className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1742,7 +1782,7 @@ export default function ArtGallery() {
                     {/* My Artworks - for artists */}
                     {canUpload(user) && (
                       <button
-                        onClick={() => { setFilter('my-artworks'); }}
+                        onClick={() => { setFilter('my-artworks'); setShowUserMenu(false); }}
                         className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1755,7 +1795,7 @@ export default function ArtGallery() {
                     {/* Analytics - Admin only */}
                     {getUserRole(user) === USER_ROLES.ADMIN && (
                       <button
-                        onClick={() => setShowAnalytics(true)}
+                        onClick={() => { setShowAnalytics(true); setShowUserMenu(false); }}
                         className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1765,7 +1805,7 @@ export default function ArtGallery() {
                       </button>
                     )}
                     <button
-                      onClick={() => setShowSettings(true)}
+                      onClick={() => { setShowSettings(true); setShowUserMenu(false); }}
                       className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1776,7 +1816,7 @@ export default function ArtGallery() {
                     </button>
                     <div className="border-t border-white/10 my-1" />
                     <button
-                      onClick={handleLogout}
+                      onClick={() => { handleLogout(); setShowUserMenu(false); }}
                       className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1785,6 +1825,14 @@ export default function ArtGallery() {
                       Log out
                     </button>
                   </div>
+                  )}
+                  {/* Click outside overlay to close dropdown */}
+                  {showUserMenu && (
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowUserMenu(false)}
+                    />
+                  )}
                 </div>
               </>
             ) : (
@@ -1825,13 +1873,13 @@ export default function ArtGallery() {
           </div>
 
           <h2 className="text-5xl md:text-7xl font-light tracking-tight mb-6">
-            <span className="text-white/90">Discover & Share</span>
+            <span className="text-white/90">Where Art Comes</span>
             <br />
-            <span className="bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400 bg-clip-text text-transparent font-normal">Digital Artistry</span>
+            <span className="bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400 bg-clip-text text-transparent font-normal">To Life</span>
           </h2>
 
           <p className="text-lg text-white/40 max-w-2xl mx-auto mb-10 font-light leading-relaxed">
-            Explore a curated collection of digital art. Upload your creations with AI-powered descriptions, organize them into series, and share your artistic vision.
+            A curated gallery for digital creators. Upload your work, let AI craft the perfect description, and showcase your art in beautifully organized collections.
           </p>
 
           {!user && (
@@ -3678,12 +3726,50 @@ export default function ArtGallery() {
                       rows={3}
                       className="w-full px-5 py-4 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all resize-none placeholder:text-white/20"
                     />
+                    {/* AI Generate Description Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Generate a new description based on title, style, and categories
+                        const answers = {
+                          mood: moodOptions[Math.floor(Math.random() * moodOptions.length)],
+                          theme: themeOptions[Math.floor(Math.random() * themeOptions.length)],
+                          style: editingArt.style || styleOptions[Math.floor(Math.random() * styleOptions.length)],
+                          inspiration: editingArt.title || 'artistic vision',
+                          message: editingArt.categories?.[0] || editingArt.category || 'abstract'
+                        };
+                        const newDesc = generateDescription(answers);
+                        setEditingArt({ ...editingArt, description: newDesc });
+                      }}
+                      className="mt-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 text-sm font-medium hover:from-purple-500/30 hover:to-pink-500/30 transition-all flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      Generate AI Description
+                    </button>
                   </div>
 
                 </div>
               </div>
 
               <div className="p-8 border-t border-white/5 flex gap-4">
+                {/* Delete Button */}
+                {canDelete(user, editingArt) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      deleteArtwork(editingArt.id);
+                      closeModal();
+                    }}
+                    className="px-4 py-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-medium hover:bg-red-500/20 transition-all duration-300 flex items-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete
+                  </button>
+                )}
                 <button
                   onClick={closeModal}
                   className="flex-1 py-4 rounded-xl border border-white/10 text-white/70 font-medium hover:bg-white/5 transition-all duration-300"
@@ -3809,19 +3895,7 @@ export default function ArtGallery() {
                   )}
                 </div>
 
-                {/* Edit button for admin/owner */}
-                {canEdit(user, selectedArt) && (
-                  <button
-                    onClick={() => { closeModal(); setTimeout(() => openEditModal(selectedArt), 100); }}
-                    className="mt-4 w-full py-3 rounded-xl bg-white/5 border border-white/10 text-white/70 font-medium hover:bg-white/10 hover:text-white transition-all duration-300 flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                    Edit Artwork
-                  </button>
-                )}
-              </div>
+                              </div>
             </div>
 
             <button
