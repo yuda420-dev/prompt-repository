@@ -629,10 +629,18 @@ export default function ArtGallery() {
 
   // Load artworks from localStorage (demo mode)
   const loadArtworksFromStorage = () => {
+    const deletedIds = JSON.parse(localStorage.getItem('hiperGalleryDeletedIds') || '[]');
     const savedArtworks = localStorage.getItem('hiperGalleryArtworks');
+
+    // Filter out deleted items from both defaults and saved
+    const filteredDefaults = defaultArtworks.filter(art => !deletedIds.includes(art.id));
+
     if (savedArtworks) {
       const parsed = JSON.parse(savedArtworks);
-      setArtworks([...defaultArtworks, ...parsed]);
+      const filteredSaved = parsed.filter(art => !deletedIds.includes(art.id));
+      setArtworks([...filteredDefaults, ...filteredSaved]);
+    } else {
+      setArtworks(filteredDefaults);
     }
   };
 
@@ -714,25 +722,42 @@ export default function ArtGallery() {
 
       if (error) throw error;
 
+      // Get locally deleted IDs to filter them out
+      const deletedIds = JSON.parse(localStorage.getItem('hiperGalleryDeletedIds') || '[]');
+
       if (data && data.length > 0) {
-        const formattedArtworks = data.map(art => ({
-          id: art.id,
-          title: art.title,
-          artist: art.artist,
-          style: art.category,
-          category: art.category?.toLowerCase() || 'abstract',
-          description: art.description,
-          image: art.image_url,
-          seriesName: art.series_name,
-          isDefault: art.is_default,
-          isNew: !art.is_default && art.user_id === userId,
-          userId: art.user_id,
-        }));
-        setArtworks(formattedArtworks);
+        const formattedArtworks = data
+          .filter(art => !deletedIds.includes(art.id)) // Filter out deleted items
+          .map(art => ({
+            id: art.id,
+            title: art.title,
+            artist: art.artist,
+            style: art.category,
+            category: art.category?.toLowerCase() || 'abstract',
+            description: art.description,
+            image: art.image_url,
+            seriesName: art.series_name,
+            isDefault: art.is_default,
+            isNew: !art.is_default && art.user_id === userId,
+            userId: art.user_id,
+            user_id: art.user_id, // Keep both for compatibility
+          }));
+
+        // Also load localStorage artworks and merge (for items not in DB)
+        const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
+        const localOnlyArtworks = savedArtworks.filter(
+          local => !deletedIds.includes(local.id) && !formattedArtworks.some(db => db.id === local.id)
+        );
+
+        setArtworks([...formattedArtworks, ...localOnlyArtworks]);
+      } else {
+        // No DB artworks, load from localStorage
+        loadArtworksFromStorage();
       }
     } catch (err) {
       console.error('Error loading artworks:', err);
-      // Fall back to defaults
+      // Fall back to localStorage
+      loadArtworksFromStorage();
     }
   };
 
@@ -1565,23 +1590,29 @@ export default function ArtGallery() {
     }
 
     // Delete from database if configured (pass the artwork for context)
-    const success = await deleteArtworkFromDB(id, art);
+    await deleteArtworkFromDB(id, art);
 
-    if (success) {
-      // Also remove from localStorage
-      const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
-      const updatedSaved = savedArtworks.filter(a => a.id !== id);
-      localStorage.setItem('hiperGalleryArtworks', JSON.stringify(updatedSaved));
+    // Always proceed with local deletion regardless of DB result
+    // Remove from localStorage artworks
+    const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
+    const updatedSaved = savedArtworks.filter(a => a.id !== id);
+    localStorage.setItem('hiperGalleryArtworks', JSON.stringify(updatedSaved));
 
-      // Also remove from custom order if present
-      const savedOrder = JSON.parse(localStorage.getItem('hiperGalleryCustomOrder') || '[]');
-      const updatedOrder = savedOrder.filter(orderId => orderId !== id);
-      localStorage.setItem('hiperGalleryCustomOrder', JSON.stringify(updatedOrder));
+    // Remove from custom order if present
+    const savedOrder = JSON.parse(localStorage.getItem('hiperGalleryCustomOrder') || '[]');
+    const updatedOrder = savedOrder.filter(orderId => orderId !== id);
+    localStorage.setItem('hiperGalleryCustomOrder', JSON.stringify(updatedOrder));
 
-      // Update state
-      setArtworks(prev => prev.filter(a => a.id !== id));
-      showToastMessage('Artwork deleted successfully');
+    // Track deleted IDs so they don't come back from database on refresh
+    const deletedIds = JSON.parse(localStorage.getItem('hiperGalleryDeletedIds') || '[]');
+    if (!deletedIds.includes(id)) {
+      deletedIds.push(id);
+      localStorage.setItem('hiperGalleryDeletedIds', JSON.stringify(deletedIds));
     }
+
+    // Update state
+    setArtworks(prev => prev.filter(a => a.id !== id));
+    showToastMessage('Artwork deleted successfully');
   };
 
   const addToCart = () => {
