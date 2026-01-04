@@ -629,15 +629,15 @@ export default function ArtGallery() {
 
   // Load artworks from localStorage (demo mode)
   const loadArtworksFromStorage = () => {
-    const deletedIds = JSON.parse(localStorage.getItem('hiperGalleryDeletedIds') || '[]');
+    const deletedIds = JSON.parse(localStorage.getItem('hiperGalleryDeletedIds') || '[]').map(id => String(id));
     const savedArtworks = localStorage.getItem('hiperGalleryArtworks');
 
     // Filter out deleted items from both defaults and saved
-    const filteredDefaults = defaultArtworks.filter(art => !deletedIds.includes(art.id));
+    const filteredDefaults = defaultArtworks.filter(art => !deletedIds.includes(String(art.id)));
 
     if (savedArtworks) {
       const parsed = JSON.parse(savedArtworks);
-      const filteredSaved = parsed.filter(art => !deletedIds.includes(art.id));
+      const filteredSaved = parsed.filter(art => !deletedIds.includes(String(art.id)));
       setArtworks([...filteredDefaults, ...filteredSaved]);
     } else {
       setArtworks(filteredDefaults);
@@ -728,15 +728,17 @@ export default function ArtGallery() {
       // Also get deleted IDs from Supabase (for cross-device sync)
       const dbDeletedIds = await loadDeletedIdsFromDB();
 
-      // Merge both lists of deleted IDs
-      const allDeletedIds = [...new Set([...localDeletedIds, ...dbDeletedIds])];
+      // Merge both lists of deleted IDs (convert all to strings for consistent comparison)
+      const allDeletedIds = [...new Set([...localDeletedIds, ...dbDeletedIds].map(id => String(id)))];
 
       // Update local storage with merged list
       localStorage.setItem('hiperGalleryDeletedIds', JSON.stringify(allDeletedIds));
 
+      console.log('All deleted IDs:', allDeletedIds);
+
       if (data && data.length > 0) {
         const formattedArtworks = data
-          .filter(art => !allDeletedIds.includes(art.id)) // Filter out deleted items
+          .filter(art => !allDeletedIds.includes(String(art.id))) // Filter out deleted items (compare as strings)
           .map(art => ({
             id: art.id,
             title: art.title,
@@ -867,16 +869,17 @@ export default function ArtGallery() {
     if (isUserAdmin) {
       try {
         // Try to insert into deleted_artworks table (for cross-device sync)
+        // Store ID as string
         const { error: insertError } = await supabase
           .from('deleted_artworks')
           .upsert({
-            artwork_id: id,
+            artwork_id: String(id),
             deleted_by: user.email,
             deleted_at: new Date().toISOString()
           });
 
         if (!insertError) {
-          console.log('Marked as deleted in deleted_artworks table');
+          console.log('Marked as deleted in deleted_artworks table, ID:', String(id));
           return { success: true, fromDB: true, markedDeleted: true };
         }
         console.error('Could not mark as deleted:', insertError);
@@ -898,9 +901,18 @@ export default function ArtGallery() {
         .from('deleted_artworks')
         .select('artwork_id');
 
-      if (!error && data) {
-        return data.map(d => d.artwork_id);
+      if (error) {
+        console.error('Error fetching deleted_artworks:', error);
+        return [];
       }
+
+      if (data && data.length > 0) {
+        console.log('Loaded deleted IDs from Supabase:', data);
+        // Return both string and number versions to handle type mismatches
+        const ids = data.map(d => d.artwork_id);
+        return ids;
+      }
+      return [];
     } catch (err) {
       console.error('Error loading deleted IDs:', err);
     }
@@ -1634,11 +1646,14 @@ export default function ArtGallery() {
     localStorage.setItem('hiperGalleryCustomOrder', JSON.stringify(updatedOrder));
 
     // Track deleted IDs so they don't come back from database on refresh
-    const deletedIds = JSON.parse(localStorage.getItem('hiperGalleryDeletedIds') || '[]');
-    if (!deletedIds.includes(id)) {
-      deletedIds.push(id);
+    // Store as strings for consistent comparison
+    const deletedIds = JSON.parse(localStorage.getItem('hiperGalleryDeletedIds') || '[]').map(i => String(i));
+    const idStr = String(id);
+    if (!deletedIds.includes(idStr)) {
+      deletedIds.push(idStr);
       localStorage.setItem('hiperGalleryDeletedIds', JSON.stringify(deletedIds));
     }
+    console.log('Deleted ID added:', idStr, 'All deleted:', deletedIds);
 
     // Update state
     setArtworks(prev => prev.filter(a => a.id !== id));
