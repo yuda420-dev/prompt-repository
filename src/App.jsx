@@ -1241,14 +1241,19 @@ export default function ArtGallery() {
       items.sort((a, b) => {
         // For series, use the newest/oldest artwork's date; for standalone use createdAt
         const getDate = (item) => {
-          if (item.type === 'series') {
-            const dates = item.artworks.map(x => x.createdAt || x.id).filter(Boolean);
-            if (dates.length === 0) return '';
-            // Sort dates and get newest or oldest depending on context
-            dates.sort();
-            return sortBy === 'oldest' ? dates[0] : dates[dates.length - 1];
+          try {
+            if (item.type === 'series') {
+              const dates = item.artworks.map(x => String(x.createdAt || x.id || '')).filter(Boolean);
+              if (dates.length === 0) return '';
+              // Sort dates and get newest or oldest depending on context
+              dates.sort();
+              return sortBy === 'oldest' ? dates[0] : dates[dates.length - 1];
+            }
+            return String(item.createdAt || item.id || '');
+          } catch (e) {
+            console.error('Error getting date for item:', item, e);
+            return '';
           }
-          return item.createdAt || item.id || '';
         };
 
         const aDate = getDate(a);
@@ -1256,14 +1261,19 @@ export default function ArtGallery() {
         const aTitle = a.type === 'series' ? a.name : a.title;
         const bTitle = b.type === 'series' ? b.name : b.title;
 
-        switch (sortBy) {
-          case 'oldest':
-            return aDate.localeCompare(bDate);
-          case 'title':
-            return (aTitle || '').localeCompare(bTitle || '');
-          case 'newest':
-          default:
-            return bDate.localeCompare(aDate);
+        try {
+          switch (sortBy) {
+            case 'oldest':
+              return String(aDate).localeCompare(String(bDate));
+            case 'title':
+              return String(aTitle || '').localeCompare(String(bTitle || ''));
+            case 'newest':
+            default:
+              return String(bDate).localeCompare(String(aDate));
+          }
+        } catch (e) {
+          console.error('Error sorting items:', a, b, e);
+          return 0;
         }
       });
     }
@@ -2334,14 +2344,24 @@ export default function ArtGallery() {
                       >
                   {(() => {
                     const rotationIndex = seriesDeckRotation[item.name] || 0;
+                    const artworksArray = item.artworks || [];
                     const getRotatedArtwork = (offset) => {
-                      const idx = (rotationIndex + offset) % item.artworks.length;
-                      return item.artworks[idx];
+                      if (artworksArray.length === 0) return null;
+                      const idx = (rotationIndex + offset) % artworksArray.length;
+                      return artworksArray[idx];
                     };
+                    // Skip rendering if no artworks
+                    if (artworksArray.length === 0) {
+                      return (
+                        <div className="aspect-[4/5] relative pt-3 pl-3 flex items-center justify-center bg-[#1a1a1c] rounded-2xl">
+                          <span className="text-white/50 text-sm">No artworks</span>
+                        </div>
+                      );
+                    }
                     return (
                   <div className="aspect-[4/5] relative pt-3 pl-3">
                     {/* Background cards - fanned out for deck effect with rotation */}
-                    {item.artworks.length > 2 && (
+                    {artworksArray.length > 2 && (
                       <div
                         className="absolute rounded-2xl overflow-hidden shadow-lg transition-all duration-700 group-hover:translate-x-4 group-hover:-translate-y-2"
                         style={{
@@ -2363,7 +2383,7 @@ export default function ArtGallery() {
                       </div>
                     )}
 
-                    {item.artworks.length > 1 && (
+                    {artworksArray.length > 1 && (
                       <div
                         className="absolute rounded-2xl overflow-hidden shadow-lg transition-all duration-700 group-hover:translate-x-3 group-hover:-translate-y-1"
                         style={{
@@ -2410,7 +2430,7 @@ export default function ArtGallery() {
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                           </svg>
-                          {item.artworks.length}
+                          {artworksArray.length}
                         </div>
 
                         {/* Gradient overlay */}
