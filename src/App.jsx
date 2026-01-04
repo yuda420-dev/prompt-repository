@@ -1168,31 +1168,38 @@ export default function ArtGallery() {
     (item.type === 'series' ? `series-${item.name}` : item.id) === activeId
   ) : null;
 
-  // Auto-rotate series deck cards
+  // Track which series is being hovered for rotation
+  const [hoveredSeries, setHoveredSeries] = useState(null);
+  const hoverIntervalRef = useRef(null);
+
+  // Rotate series cards on hover every 3 seconds
   useEffect(() => {
-    const seriesItems = orderedGalleryItems.filter(item => item.type === 'series' && item.artworks.length > 1);
-    if (seriesItems.length === 0) return;
-
-    // Stagger the rotation so cards don't all switch at the same time
-    const timeouts = [];
-    seriesItems.forEach((series, idx) => {
-      // Each series starts rotating at a different offset (0, 3s, 6s stagger)
-      const initialDelay = idx * 3000;
-      const timeout = setTimeout(() => {
-        // Start individual interval for this series
-        const interval = setInterval(() => {
-          setSeriesDeckRotation(prev => ({
+    if (hoveredSeries) {
+      // Start rotation interval for hovered series
+      hoverIntervalRef.current = setInterval(() => {
+        setSeriesDeckRotation(prev => {
+          const series = orderedGalleryItems.find(item => item.type === 'series' && item.name === hoveredSeries);
+          if (!series) return prev;
+          return {
             ...prev,
-            [series.name]: ((prev[series.name] || 0) + 1) % series.artworks.length,
-          }));
-        }, 10000); // Rotate every 10 seconds
-        timeouts.push(interval);
-      }, initialDelay);
-      timeouts.push(timeout);
-    });
+            [hoveredSeries]: ((prev[hoveredSeries] || 0) + 1) % series.artworks.length,
+          };
+        });
+      }, 3000); // Rotate every 3 seconds on hover
+    } else {
+      // Clear interval when not hovering
+      if (hoverIntervalRef.current) {
+        clearInterval(hoverIntervalRef.current);
+        hoverIntervalRef.current = null;
+      }
+    }
 
-    return () => timeouts.forEach(t => clearTimeout(t) || clearInterval(t));
-  }, [orderedGalleryItems]);
+    return () => {
+      if (hoverIntervalRef.current) {
+        clearInterval(hoverIntervalRef.current);
+      }
+    };
+  }, [hoveredSeries, orderedGalleryItems]);
 
   // Open a series folder
   const openSeriesFolder = (series) => {
@@ -2061,9 +2068,11 @@ export default function ArtGallery() {
                     disabled={!user || getUserRole(user) !== USER_ROLES.ADMIN}
                   >
                     {item.type === 'series' ? (
-                      // Series Card - Stacked Deck Style with auto-rotation
+                      // Series Card - Stacked Deck Style with hover rotation
                       <article
                         onClick={() => openSeriesFolder(item)}
+                        onMouseEnter={() => setHoveredSeries(item.name)}
+                        onMouseLeave={() => setHoveredSeries(null)}
                         className="group relative cursor-pointer transition-all duration-500"
                         style={{ animationDelay: `${index * 100}ms` }}
                       >
@@ -2147,22 +2156,6 @@ export default function ArtGallery() {
                           </svg>
                           {item.artworks.length}
                         </div>
-
-                        {/* Rotation dots indicator */}
-                        {item.artworks.length > 1 && (
-                          <div className="absolute top-4 right-4 flex gap-1">
-                            {item.artworks.slice(0, Math.min(5, item.artworks.length)).map((_, i) => (
-                              <div
-                                key={i}
-                                className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
-                                  i === rotationIndex % Math.min(5, item.artworks.length)
-                                    ? 'bg-white scale-125'
-                                    : 'bg-white/40'
-                                }`}
-                              />
-                            ))}
-                          </div>
-                        )}
 
                         {/* Gradient overlay */}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
