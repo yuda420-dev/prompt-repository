@@ -4,6 +4,7 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragOv
 import { arrayMove, SortableContext, useSortable, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { createProdigiOrder, isProdigiConfigured } from './services/prodigi';
+import * as analytics from './services/analytics';
 
 const defaultArtworks = [
   { id: 1, title: "Ethereal Dreams", artist: "HiPeR Gallery", style: "Abstract Expressionism", category: "abstract", description: "A mesmerizing exploration of color and form, where dreams meet reality in an ethereal dance of light.", image: "https://images.unsplash.com/photo-1541961017774-22349e4a1262?w=800&h=800&fit=crop", isDefault: true },
@@ -625,6 +626,10 @@ export default function ArtGallery() {
     const isMobile = window.innerWidth < 768;
     const isTablet = window.innerWidth >= 768 && window.innerWidth < 1024;
 
+    // Track session in Supabase (for cross-user analytics)
+    analytics.trackSessionStart(user?.id);
+    analytics.trackPageView('gallery', user?.id);
+
     setAnalyticsData(prev => {
       const updated = {
         ...prev,
@@ -775,6 +780,8 @@ export default function ArtGallery() {
   // Toggle favorite
   const toggleFavorite = (artworkId, e) => {
     if (e) e.stopPropagation();
+    const isAdding = !favorites.includes(artworkId);
+    const artwork = artworks.find(a => a.id === artworkId);
     setFavorites(prev => {
       const newFavorites = prev.includes(artworkId)
         ? prev.filter(id => id !== artworkId)
@@ -782,8 +789,10 @@ export default function ArtGallery() {
       localStorage.setItem('hiperGalleryFavorites', JSON.stringify(newFavorites));
       return newFavorites;
     });
-    // Track favorite action
+    // Track favorite action in localStorage
     trackFavoriteAction();
+    // Track in Supabase for cross-user analytics
+    analytics.trackFavorite(artworkId, artwork?.title, isAdding ? 'add' : 'remove', user?.id);
   };
 
   const isFavorite = (artworkId) => favorites.includes(artworkId);
@@ -1664,6 +1673,10 @@ export default function ArtGallery() {
     setSelectedFrame(1);
     setEditingArt(null);
     setTimeout(() => setIsModalOpen(true), 10);
+    // Track in localStorage
+    trackArtworkView(art.id, art.category);
+    // Track in Supabase for cross-user analytics
+    analytics.trackArtworkView(art.id, art.title, user?.id);
   };
 
   const openEditModal = (art, e) => {
