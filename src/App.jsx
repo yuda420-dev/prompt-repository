@@ -885,6 +885,7 @@ export default function ArtGallery() {
             isNew: !art.is_default && art.user_id === userId,
             userId: art.user_id,
             user_id: art.user_id, // Keep both for compatibility
+            createdAt: art.created_at, // For sorting by date
           }));
 
         // Also load localStorage artworks and merge (for items not in DB)
@@ -1238,19 +1239,31 @@ export default function ArtGallery() {
     // Sort based on sortBy preference (skip for 'curated' as it uses custom order)
     if (sortBy !== 'curated') {
       items.sort((a, b) => {
-        const aId = a.type === 'series' ? Math.max(...a.artworks.map(x => x.id)) : a.id;
-        const bId = b.type === 'series' ? Math.max(...b.artworks.map(x => x.id)) : b.id;
+        // For series, use the newest/oldest artwork's date; for standalone use createdAt
+        const getDate = (item) => {
+          if (item.type === 'series') {
+            const dates = item.artworks.map(x => x.createdAt || x.id).filter(Boolean);
+            if (dates.length === 0) return '';
+            // Sort dates and get newest or oldest depending on context
+            dates.sort();
+            return sortBy === 'oldest' ? dates[0] : dates[dates.length - 1];
+          }
+          return item.createdAt || item.id || '';
+        };
+
+        const aDate = getDate(a);
+        const bDate = getDate(b);
         const aTitle = a.type === 'series' ? a.name : a.title;
         const bTitle = b.type === 'series' ? b.name : b.title;
 
         switch (sortBy) {
           case 'oldest':
-            return aId - bId;
+            return aDate.localeCompare(bDate);
           case 'title':
-            return aTitle.localeCompare(bTitle);
+            return (aTitle || '').localeCompare(bTitle || '');
           case 'newest':
           default:
-            return bId - aId;
+            return bDate.localeCompare(aDate);
         }
       });
     }
