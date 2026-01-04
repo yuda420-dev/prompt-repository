@@ -1002,7 +1002,7 @@ export default function ArtGallery() {
     }
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: authEmail,
         password: authPassword,
         options: {
@@ -1010,17 +1010,33 @@ export default function ArtGallery() {
             name: authName,
             role: authRole,
           },
+          emailRedirectTo: window.location.origin,
         },
       });
 
       if (error) throw error;
 
-      setShowAuthModal(false);
-      setAuthEmail('');
-      setAuthPassword('');
-      setAuthName('');
-      setAuthRole(USER_ROLES.ARTIST);
-      showToastMessage('Account created! Check your email to confirm.');
+      // Check if email confirmation is required
+      if (data?.user?.identities?.length === 0) {
+        // User already exists
+        setAuthError('An account with this email already exists. Try logging in instead.');
+      } else if (data?.user && !data?.session) {
+        // Email confirmation required
+        setShowAuthModal(false);
+        setAuthEmail('');
+        setAuthPassword('');
+        setAuthName('');
+        setAuthRole(USER_ROLES.ARTIST);
+        showToastMessage('Check your email to confirm your account!', 'success');
+      } else if (data?.session) {
+        // Auto-confirmed (no email verification needed)
+        setShowAuthModal(false);
+        setAuthEmail('');
+        setAuthPassword('');
+        setAuthName('');
+        setAuthRole(USER_ROLES.ARTIST);
+        showToastMessage(`Welcome to HiPeR Gallery!`);
+      }
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -2666,31 +2682,38 @@ export default function ArtGallery() {
                   />
                 </div>
 
-                {/* Role Selection - only on signup */}
+                {/* Role Selection - only on signup (hide admin option) */}
                 {authMode === 'signup' && (
                   <div>
-                    <label className="block text-sm text-white/50 mb-2">I am a...</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {Object.entries(USER_ROLES).map(([key, value]) => (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => setAuthRole(value)}
-                          className={`p-3 rounded-xl border text-center transition-all duration-300 ${
-                            authRole === value
-                              ? 'border-amber-500 bg-amber-500/10 text-amber-400'
-                              : 'border-white/10 hover:border-white/20 hover:bg-white/5 text-white/60'
-                          }`}
-                        >
-                          <div className="text-sm font-medium">{ROLE_LABELS[value]}</div>
-                        </button>
-                      ))}
+                    <label className="block text-sm text-white/50 mb-2">I want to...</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setAuthRole(USER_ROLES.ARTIST)}
+                        className={`p-4 rounded-xl border text-center transition-all duration-300 ${
+                          authRole === USER_ROLES.ARTIST
+                            ? 'border-amber-500 bg-amber-500/10 text-amber-400'
+                            : 'border-white/10 hover:border-white/20 hover:bg-white/5 text-white/60'
+                        }`}
+                      >
+                        <div className="text-2xl mb-1">🎨</div>
+                        <div className="text-sm font-medium">Share Art</div>
+                        <div className="text-xs text-white/40 mt-1">Upload & manage artworks</div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAuthRole(USER_ROLES.VIEWER)}
+                        className={`p-4 rounded-xl border text-center transition-all duration-300 ${
+                          authRole === USER_ROLES.VIEWER
+                            ? 'border-amber-500 bg-amber-500/10 text-amber-400'
+                            : 'border-white/10 hover:border-white/20 hover:bg-white/5 text-white/60'
+                        }`}
+                      >
+                        <div className="text-2xl mb-1">👀</div>
+                        <div className="text-sm font-medium">Browse</div>
+                        <div className="text-xs text-white/40 mt-1">Explore the gallery</div>
+                      </button>
                     </div>
-                    <p className="text-xs text-white/30 mt-2">
-                      {authRole === USER_ROLES.ADMIN && 'Full access to manage gallery and all artworks'}
-                      {authRole === USER_ROLES.ARTIST && 'Upload and manage your own artworks'}
-                      {authRole === USER_ROLES.VIEWER && 'Browse and view the gallery'}
-                    </p>
                   </div>
                 )}
 
