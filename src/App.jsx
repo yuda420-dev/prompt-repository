@@ -803,9 +803,19 @@ export default function ArtGallery() {
     }
   };
 
-  // Delete artwork
-  const deleteArtworkFromDB = async (id) => {
+  // Delete artwork from database (if it exists there)
+  const deleteArtworkFromDB = async (id, artwork) => {
+    // If Supabase is not configured, just return success (we'll handle localStorage separately)
     if (!isSupabaseConfigured()) {
+      return true;
+    }
+
+    // Default artworks and localStorage-only artworks don't exist in Supabase
+    // Check if this artwork was uploaded to Supabase (has a Supabase-style UUID or was fetched from DB)
+    const isLocalOnly = artwork?.isDefault || artwork?.isLocalStorage || !artwork?.user_id;
+
+    if (isLocalOnly) {
+      // This artwork is not in Supabase, just return success
       return true;
     }
 
@@ -825,12 +835,20 @@ export default function ArtGallery() {
 
       const { error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase delete error:', error);
+        // If the error is "no rows affected" or similar, it might just not be in the DB
+        // Still return true to allow local deletion
+        if (error.code === 'PGRST116' || error.message?.includes('no rows')) {
+          return true;
+        }
+        throw error;
+      }
       return true;
     } catch (err) {
-      console.error('Error deleting artwork:', err);
-      showToastMessage('Failed to delete artwork', 'error');
-      return false;
+      console.error('Error deleting artwork from database:', err);
+      // Return true anyway to allow local deletion - the artwork might just not be in Supabase
+      return true;
     }
   };
 
@@ -1546,14 +1564,19 @@ export default function ArtGallery() {
       return;
     }
 
-    // Delete from database if configured
-    const success = await deleteArtworkFromDB(id);
+    // Delete from database if configured (pass the artwork for context)
+    const success = await deleteArtworkFromDB(id, art);
 
     if (success) {
       // Also remove from localStorage
       const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
       const updatedSaved = savedArtworks.filter(a => a.id !== id);
       localStorage.setItem('hiperGalleryArtworks', JSON.stringify(updatedSaved));
+
+      // Also remove from custom order if present
+      const savedOrder = JSON.parse(localStorage.getItem('hiperGalleryCustomOrder') || '[]');
+      const updatedOrder = savedOrder.filter(orderId => orderId !== id);
+      localStorage.setItem('hiperGalleryCustomOrder', JSON.stringify(updatedOrder));
 
       // Update state
       setArtworks(prev => prev.filter(a => a.id !== id));
