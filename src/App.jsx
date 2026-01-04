@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
+import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { createProdigiOrder, isProdigiConfigured } from './services/prodigi';
@@ -235,43 +235,57 @@ function SortableSeriesThumbnail({ art, index, isActive, onClick, onMoveLeft, on
   };
 
   return (
-    <div className="relative group flex-shrink-0">
+    <div className="relative flex-shrink-0">
       <div
         ref={setNodeRef}
         style={style}
         {...attributes}
         {...listeners}
         onClick={onClick}
-        className={`w-14 h-14 md:w-16 md:h-16 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing transition-all ${
+        className={`w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing transition-all relative ${
           isActive
-            ? 'ring-2 ring-amber-500 scale-110'
-            : 'opacity-60 hover:opacity-90'
-        } ${isDragging ? 'ring-2 ring-white scale-105' : ''}`}
+            ? 'ring-2 ring-amber-500 scale-105'
+            : 'opacity-70 hover:opacity-100'
+        } ${isDragging ? 'ring-2 ring-white shadow-xl' : ''}`}
       >
         <img src={art.image} alt={art.title} className="w-full h-full object-cover" draggable={false} />
+
+        {/* Grip icon overlay - shows on hover/active */}
+        <div className={`absolute inset-0 flex items-center justify-center bg-black/40 transition-opacity ${isActive || isDragging ? 'opacity-100' : 'opacity-0 hover:opacity-100'}`}>
+          <svg className="w-5 h-5 text-white/90" fill="currentColor" viewBox="0 0 24 24">
+            <circle cx="8" cy="6" r="1.5" />
+            <circle cx="16" cy="6" r="1.5" />
+            <circle cx="8" cy="12" r="1.5" />
+            <circle cx="16" cy="12" r="1.5" />
+            <circle cx="8" cy="18" r="1.5" />
+            <circle cx="16" cy="18" r="1.5" />
+          </svg>
+        </div>
+
         {/* Position number badge */}
-        <div className="absolute bottom-0.5 right-0.5 text-[10px] bg-black/70 text-white/80 px-1 rounded">
+        <div className="absolute bottom-1 right-1 text-xs font-bold bg-black/80 text-white px-1.5 py-0.5 rounded">
           {index + 1}
         </div>
       </div>
-      {/* Mobile-friendly move buttons (visible on touch devices) */}
+
+      {/* Mobile-friendly move buttons (visible when active on touch devices) */}
       {isActive && (
-        <div className="absolute -top-8 left-1/2 -translate-x-1/2 flex gap-1 md:hidden">
+        <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 flex gap-2 md:hidden">
           <button
             onClick={(e) => { e.stopPropagation(); onMoveLeft?.(); }}
             disabled={isFirst}
-            className={`w-6 h-6 rounded-full flex items-center justify-center ${isFirst ? 'bg-white/10 text-white/30' : 'bg-amber-500 text-black'}`}
+            className={`w-7 h-7 rounded-full flex items-center justify-center shadow-lg ${isFirst ? 'bg-white/10 text-white/30' : 'bg-amber-500 text-black active:scale-95'}`}
           >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onMoveRight?.(); }}
             disabled={isLast}
-            className={`w-6 h-6 rounded-full flex items-center justify-center ${isLast ? 'bg-white/10 text-white/30' : 'bg-amber-500 text-black'}`}
+            className={`w-7 h-7 rounded-full flex items-center justify-center shadow-lg ${isLast ? 'bg-white/10 text-white/30' : 'bg-amber-500 text-black active:scale-95'}`}
           >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
             </svg>
           </button>
@@ -356,7 +370,13 @@ export default function ArtGallery() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8, // 8px movement before drag starts
+        distance: 5, // 5px movement before drag starts (reduced from 8)
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 100, // 100ms hold before drag starts (quick but prevents accidental drags)
+        tolerance: 5, // 5px movement allowed during delay
       },
     })
   );
@@ -2771,11 +2791,11 @@ export default function ArtGallery() {
             </div>
 
             {/* Thumbnail strip - draggable for admin */}
-            <div className="px-4 py-4 pt-8">
+            <div className="px-2 py-2">
               {getUserRole(user) === USER_ROLES.ADMIN ? (
-                <div className="flex flex-col items-center gap-2">
-                  <span className="text-white/40 text-xs hidden md:block">Drag to reorder</span>
-                  <span className="text-white/40 text-xs md:hidden">Tap arrows to reorder</span>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-white/50 text-[10px] uppercase tracking-wider hidden md:block">Drag to reorder</span>
+                  <span className="text-white/50 text-[10px] uppercase tracking-wider md:hidden">Hold & drag or use arrows</span>
                   <DndContext
                     sensors={sensors}
                     collisionDetection={closestCenter}
@@ -2797,7 +2817,7 @@ export default function ArtGallery() {
                     }}
                   >
                     <SortableContext items={openSeries.artworks.map(a => a.id)} strategy={rectSortingStrategy}>
-                      <div className="flex justify-center gap-2 md:gap-3 overflow-x-auto max-w-full pb-2 px-2">
+                      <div className="flex justify-center gap-2 overflow-x-auto max-w-full py-1 px-1">
                         {openSeries.artworks.map((art, i) => (
                           <SortableSeriesThumbnail
                             key={art.id}
@@ -2827,15 +2847,15 @@ export default function ArtGallery() {
                   </DndContext>
                 </div>
               ) : (
-                <div className="flex justify-center gap-2">
+                <div className="flex justify-center gap-2 py-1">
                   {openSeries.artworks.map((art, i) => (
                     <button
                       key={art.id}
                       onClick={() => setSeriesViewIndex(i)}
-                      className={`w-12 h-12 rounded-lg overflow-hidden transition-all ${
+                      className={`w-16 h-16 md:w-20 md:h-20 rounded-xl overflow-hidden transition-all ${
                         i === seriesViewIndex
-                          ? 'ring-2 ring-amber-500 scale-110'
-                          : 'opacity-50 hover:opacity-80'
+                          ? 'ring-2 ring-amber-500 scale-105'
+                          : 'opacity-60 hover:opacity-90'
                       }`}
                     >
                       <img src={art.image} alt="" className="w-full h-full object-cover" />
