@@ -901,6 +901,7 @@ export default function ArtGallery() {
             description: art.description,
             image: art.image_url,
             seriesName: art.series_name,
+            seriesOrder: art.sort_order ?? 0, // Load saved order from DB
             isDefault: art.is_default,
             isNew: !art.is_default && art.user_id === userId,
             userId: art.user_id,
@@ -1252,8 +1253,11 @@ export default function ArtGallery() {
       }
     });
 
-    // Convert series map to array and interleave with standalone
-    const seriesFolders = Object.values(seriesMap);
+    // Convert series map to array and SORT artworks within each series by seriesOrder
+    const seriesFolders = Object.values(seriesMap).map(series => ({
+      ...series,
+      artworks: series.artworks.sort((a, b) => (a.seriesOrder ?? 0) - (b.seriesOrder ?? 0)),
+    }));
     const items = [...seriesFolders, ...standalone];
 
     // Sort based on sortBy preference (skip for 'curated' as it uses custom order)
@@ -1424,8 +1428,10 @@ export default function ArtGallery() {
     if (!user || getUserRole(user) !== USER_ROLES.ADMIN) return;
     if (fromIndex === toIndex) return;
 
-    // Get artworks in the series
-    const seriesArtworks = artworks.filter(a => a.seriesName === seriesName);
+    // Get artworks in the series (sorted by current seriesOrder)
+    const seriesArtworks = artworks
+      .filter(a => a.seriesName === seriesName)
+      .sort((a, b) => (a.seriesOrder ?? 0) - (b.seriesOrder ?? 0));
     const reordered = arrayMove(seriesArtworks, fromIndex, toIndex);
 
     // Update order field for each artwork in the series
@@ -1447,7 +1453,7 @@ export default function ArtGallery() {
       }));
     }
 
-    // Save to localStorage
+    // Save to localStorage (for offline/demo mode)
     const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
     const updatedSaved = savedArtworks.map(art => {
       if (art.seriesName === seriesName) {
@@ -1458,7 +1464,34 @@ export default function ArtGallery() {
     });
     localStorage.setItem('hiperGalleryArtworks', JSON.stringify(updatedSaved));
 
-    showToastMessage('Series order updated');
+    // PERSIST TO SUPABASE - save sort_order for each artwork in the series
+    if (isSupabaseConfigured()) {
+      try {
+        // Update each artwork's sort_order in the database
+        const updates = reordered.map((art, index) =>
+          supabase
+            .from('artworks')
+            .update({ sort_order: index })
+            .eq('id', art.id)
+        );
+
+        const results = await Promise.all(updates);
+        const errors = results.filter(r => r.error);
+
+        if (errors.length > 0) {
+          console.error('Error saving series order:', errors);
+          showToastMessage('Order saved locally only', 'warning');
+        } else {
+          console.log('Series order saved to database');
+          showToastMessage('Series order saved');
+        }
+      } catch (err) {
+        console.error('Error persisting series order:', err);
+        showToastMessage('Order saved locally only', 'warning');
+      }
+    } else {
+      showToastMessage('Series order updated');
+    }
   };
 
   const showToastMessage = (message, type = 'success') => {
