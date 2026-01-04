@@ -214,6 +214,71 @@ function SortableArtworkCard({ id, children, disabled }) {
   );
 }
 
+// Sortable thumbnail for series reordering
+function SortableSeriesThumbnail({ art, index, isActive, onClick, onMoveLeft, onMoveRight, isFirst, isLast, totalCount }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: art.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 1000 : 'auto',
+  };
+
+  return (
+    <div className="relative group flex-shrink-0">
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...listeners}
+        onClick={onClick}
+        className={`w-14 h-14 md:w-16 md:h-16 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing transition-all ${
+          isActive
+            ? 'ring-2 ring-amber-500 scale-110'
+            : 'opacity-60 hover:opacity-90'
+        } ${isDragging ? 'ring-2 ring-white scale-105' : ''}`}
+      >
+        <img src={art.image} alt={art.title} className="w-full h-full object-cover" draggable={false} />
+        {/* Position number badge */}
+        <div className="absolute bottom-0.5 right-0.5 text-[10px] bg-black/70 text-white/80 px-1 rounded">
+          {index + 1}
+        </div>
+      </div>
+      {/* Mobile-friendly move buttons (visible on touch devices) */}
+      {isActive && (
+        <div className="absolute -top-8 left-1/2 -translate-x-1/2 flex gap-1 md:hidden">
+          <button
+            onClick={(e) => { e.stopPropagation(); onMoveLeft?.(); }}
+            disabled={isFirst}
+            className={`w-6 h-6 rounded-full flex items-center justify-center ${isFirst ? 'bg-white/10 text-white/30' : 'bg-amber-500 text-black'}`}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onMoveRight?.(); }}
+            disabled={isLast}
+            className={`w-6 h-6 rounded-full flex items-center justify-center ${isLast ? 'bg-white/10 text-white/30' : 'bg-amber-500 text-black'}`}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ArtGallery() {
   // Auth state
   const [user, setUser] = useState(null);
@@ -230,7 +295,7 @@ export default function ArtGallery() {
   // Gallery state
   const [artworks, setArtworks] = useState(defaultArtworks);
   const [filter, setFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('newest'); // newest, oldest, title
+  const [sortBy, setSortBy] = useState('curated'); // curated (admin order), newest, oldest, title
   const [selectedArt, setSelectedArt] = useState(null);
   const [selectedSize, setSelectedSize] = useState(1);
   const [selectedFrame, setSelectedFrame] = useState(1);
@@ -293,6 +358,7 @@ export default function ArtGallery() {
   const [seriesViewIndex, setSeriesViewIndex] = useState(0);
   const [individualNotes, setIndividualNotes] = useState({}); // { index: { title, note } }
   const [seriesStep, setSeriesStep] = useState(0); // 0: choose mode, 1: series info, 2: individual notes, 3: review
+  const [seriesDeckRotation, setSeriesDeckRotation] = useState({}); // { seriesName: currentIndex } for auto-rotation
 
   // Settings/Export state
   const [showSettings, setShowSettings] = useState(false);
@@ -672,11 +738,12 @@ export default function ArtGallery() {
   // Save artwork to storage/database
   const saveArtwork = async (artwork, imageFile) => {
     if (!isSupabaseConfigured()) {
-      // Demo mode - save to localStorage
+      // Demo mode - save to localStorage with userId for permission tracking
+      const artworkWithUser = { ...artwork, userId: user?.id || 'demo-user' };
       const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
-      savedArtworks.unshift(artwork);
+      savedArtworks.unshift(artworkWithUser);
       localStorage.setItem('hiperGalleryArtworks', JSON.stringify(savedArtworks));
-      return artwork;
+      return artworkWithUser;
     }
 
     try {
@@ -900,7 +967,12 @@ export default function ArtGallery() {
   };
 
   const visibleArtworks = getVisibleArtworks();
-  const filteredArt = filter === 'all' ? visibleArtworks : visibleArtworks.filter(a => a.category === filter);
+  const filteredArt = (() => {
+    if (filter === 'all') return visibleArtworks;
+    if (filter === 'favorites') return visibleArtworks.filter(a => favorites.includes(a.id));
+    if (filter === 'my-artworks') return visibleArtworks.filter(a => a.userId === user?.id);
+    return visibleArtworks.filter(a => a.category === filter);
+  })();
   const hasMoreArtworks = !user && artworks.length > PREVIEW_LIMIT;
 
   // Group artworks by series for folder display
@@ -928,31 +1000,33 @@ export default function ArtGallery() {
     const seriesFolders = Object.values(seriesMap);
     const items = [...seriesFolders, ...standalone];
 
-    // Sort based on sortBy preference
-    items.sort((a, b) => {
-      const aId = a.type === 'series' ? Math.max(...a.artworks.map(x => x.id)) : a.id;
-      const bId = b.type === 'series' ? Math.max(...b.artworks.map(x => x.id)) : b.id;
-      const aTitle = a.type === 'series' ? a.name : a.title;
-      const bTitle = b.type === 'series' ? b.name : b.title;
+    // Sort based on sortBy preference (skip for 'curated' as it uses custom order)
+    if (sortBy !== 'curated') {
+      items.sort((a, b) => {
+        const aId = a.type === 'series' ? Math.max(...a.artworks.map(x => x.id)) : a.id;
+        const bId = b.type === 'series' ? Math.max(...b.artworks.map(x => x.id)) : b.id;
+        const aTitle = a.type === 'series' ? a.name : a.title;
+        const bTitle = b.type === 'series' ? b.name : b.title;
 
-      switch (sortBy) {
-        case 'oldest':
-          return aId - bId;
-        case 'title':
-          return aTitle.localeCompare(bTitle);
-        case 'newest':
-        default:
-          return bId - aId;
-      }
-    });
+        switch (sortBy) {
+          case 'oldest':
+            return aId - bId;
+          case 'title':
+            return aTitle.localeCompare(bTitle);
+          case 'newest':
+          default:
+            return bId - aId;
+        }
+      });
+    }
 
     return items;
   };
 
   const galleryItems = getGalleryItems();
 
-  // Apply custom order if set
-  const orderedGalleryItems = customOrder
+  // Apply custom order only when in 'curated' mode and custom order exists
+  const orderedGalleryItems = (sortBy === 'curated' && customOrder)
     ? customOrder.map(id => galleryItems.find(item => (item.type === 'series' ? `series-${item.name}` : item.id) === id)).filter(Boolean)
     : galleryItems;
 
@@ -965,6 +1039,12 @@ export default function ArtGallery() {
     const { active, over } = event;
     setActiveId(null);
 
+    // Only allow reordering in curated mode
+    if (sortBy !== 'curated') {
+      showToastMessage('Switch to Curated sort to reorder', 'error');
+      return;
+    }
+
     if (over && active.id !== over.id) {
       const getItemId = (item) => item.type === 'series' ? `series-${item.name}` : item.id;
       const oldIndex = orderedGalleryItems.findIndex(item => getItemId(item) === active.id);
@@ -975,7 +1055,7 @@ export default function ArtGallery() {
         setCustomOrder(newOrder);
         // Save to localStorage
         localStorage.setItem('hiperGalleryOrder', JSON.stringify(newOrder));
-        showToastMessage('Gallery order updated');
+        showToastMessage('Gallery order saved');
       }
     }
   };
@@ -1002,6 +1082,25 @@ export default function ArtGallery() {
     (item.type === 'series' ? `series-${item.name}` : item.id) === activeId
   ) : null;
 
+  // Auto-rotate series deck cards
+  useEffect(() => {
+    const seriesItems = orderedGalleryItems.filter(item => item.type === 'series' && item.artworks.length > 1);
+    if (seriesItems.length === 0) return;
+
+    const interval = setInterval(() => {
+      setSeriesDeckRotation(prev => {
+        const next = { ...prev };
+        seriesItems.forEach(series => {
+          const current = prev[series.name] || 0;
+          next[series.name] = (current + 1) % series.artworks.length;
+        });
+        return next;
+      });
+    }, 3000); // Rotate every 3 seconds
+
+    return () => clearInterval(interval);
+  }, [orderedGalleryItems]);
+
   // Open a series folder
   const openSeriesFolder = (series) => {
     setOpenSeries(series);
@@ -1024,6 +1123,48 @@ export default function ArtGallery() {
   const closeSeriesFolder = () => {
     setOpenSeries(null);
     setSeriesViewIndex(0);
+  };
+
+  // Reorder artworks within a series (admin only)
+  const reorderSeriesArtwork = async (seriesName, fromIndex, toIndex) => {
+    if (!user || getUserRole(user) !== USER_ROLES.ADMIN) return;
+    if (fromIndex === toIndex) return;
+
+    // Get artworks in the series
+    const seriesArtworks = artworks.filter(a => a.seriesName === seriesName);
+    const reordered = arrayMove(seriesArtworks, fromIndex, toIndex);
+
+    // Update order field for each artwork in the series
+    const updatedArtworks = artworks.map(art => {
+      if (art.seriesName === seriesName) {
+        const newOrder = reordered.findIndex(a => a.id === art.id);
+        return { ...art, seriesOrder: newOrder };
+      }
+      return art;
+    });
+
+    setArtworks(updatedArtworks);
+
+    // Update openSeries if it's the current series
+    if (openSeries && openSeries.name === seriesName) {
+      setOpenSeries(prev => ({
+        ...prev,
+        artworks: reordered.map((a, i) => ({ ...a, seriesOrder: i })),
+      }));
+    }
+
+    // Save to localStorage
+    const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
+    const updatedSaved = savedArtworks.map(art => {
+      if (art.seriesName === seriesName) {
+        const newOrder = reordered.findIndex(a => a.id === art.id);
+        return { ...art, seriesOrder: newOrder };
+      }
+      return art;
+    });
+    localStorage.setItem('hiperGalleryArtworks', JSON.stringify(updatedSaved));
+
+    showToastMessage('Series order updated');
   };
 
   const showToastMessage = (message, type = 'success') => {
@@ -1284,9 +1425,17 @@ export default function ArtGallery() {
     if (!user) return;
     // Only admin can edit default artworks
     if (art.isDefault && getUserRole(user) !== USER_ROLES.ADMIN) return;
-    setEditingArt({ ...art, categories: art.categories || [art.category] });
+    // Initialize with proper defaults to prevent flashing/uncontrolled inputs
+    setEditingArt({
+      ...art,
+      title: art.title || '',
+      style: art.style || '',
+      description: art.description || '',
+      seriesName: art.seriesName || '',
+      categories: art.categories || (art.category ? [art.category] : ['abstract']),
+    });
     setSelectedArt(null);
-    setTimeout(() => setIsModalOpen(true), 10);
+    setIsModalOpen(true);
   };
 
   const closeModal = () => {
@@ -1318,8 +1467,9 @@ export default function ArtGallery() {
           .from('artworks')
           .update({
             title: updatedArt.title,
-            description: updatedArt.description,
+            description: updatedArt.description || '',
             category: primaryCategory,
+            style: updatedArt.style || '',
             series_name: updatedArt.seriesName || null,
           })
           .eq('id', updatedArt.id);
@@ -1353,8 +1503,26 @@ export default function ArtGallery() {
     e.stopPropagation();
     const art = artworks.find(a => a.id === id);
     if (!user) return;
-    // Only admin can delete defaults
-    if (art?.isDefault && getUserRole(user) !== USER_ROLES.ADMIN) return;
+
+    const userRole = getUserRole(user);
+
+    // Only admin can delete default artworks
+    if (art?.isDefault && userRole !== USER_ROLES.ADMIN) {
+      showToastMessage('Only admins can delete gallery artworks', 'error');
+      return;
+    }
+
+    // Artists can only delete their own artworks
+    if (userRole === USER_ROLES.ARTIST && art?.userId !== user.id) {
+      showToastMessage('You can only delete your own artworks', 'error');
+      return;
+    }
+
+    // Viewers cannot delete at all
+    if (userRole === USER_ROLES.VIEWER) {
+      showToastMessage('You do not have permission to delete artworks', 'error');
+      return;
+    }
 
     const success = await deleteArtworkFromDB(id);
     if (success) {
@@ -1494,7 +1662,10 @@ export default function ArtGallery() {
       <header className="fixed top-0 left-0 right-0 z-40 transition-all duration-500">
         <div className="absolute inset-0 bg-[#0a0a0b]/80 backdrop-blur-2xl border-b border-white/5" />
         <div className="relative max-w-7xl mx-auto px-6 lg:px-8 py-5 flex justify-between items-center">
-          <div className="flex items-center gap-3">
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
+          >
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-600 flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -1506,7 +1677,7 @@ export default function ArtGallery() {
                 <span className="text-white/40 font-light ml-1.5">Gallery</span>
               </h1>
             </div>
-          </div>
+          </button>
 
           <nav className="hidden md:flex items-center gap-8">
             <button onClick={scrollToGallery} className="text-sm text-white/60 hover:text-white transition-colors">Collection</button>
@@ -1555,6 +1726,32 @@ export default function ArtGallery() {
                         {ROLE_LABELS[user.role] || 'Artist'}
                       </span>
                     </div>
+                    {/* My Favorites */}
+                    <button
+                      onClick={() => { setFilter('favorites'); setShowUserMenu && setShowUserMenu(false); }}
+                      className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                      </svg>
+                      My Favorites
+                      {favorites.length > 0 && (
+                        <span className="ml-auto text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full">{favorites.length}</span>
+                      )}
+                    </button>
+                    {/* My Artworks - for artists */}
+                    {canUpload(user) && (
+                      <button
+                        onClick={() => { setFilter('my-artworks'); }}
+                        className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        My Artworks
+                      </button>
+                    )}
+                    <div className="border-t border-white/10 my-1" />
                     {/* Analytics - Admin only */}
                     {getUserRole(user) === USER_ROLES.ADMIN && (
                       <button
@@ -1577,10 +1774,14 @@ export default function ArtGallery() {
                       </svg>
                       Settings
                     </button>
+                    <div className="border-t border-white/10 my-1" />
                     <button
                       onClick={handleLogout}
-                      className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+                      className="w-full px-4 py-2 text-left text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors flex items-center gap-2"
                     >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                      </svg>
                       Log out
                     </button>
                   </div>
@@ -1620,48 +1821,30 @@ export default function ArtGallery() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
             </span>
-            <span className="text-sm text-white/60">Museum-Quality Fine Art Prints</span>
+            <span className="text-sm text-white/60">Curated Digital Art Collection</span>
           </div>
 
           <h2 className="text-5xl md:text-7xl font-light tracking-tight mb-6">
-            <span className="text-white/90">Your Vision,</span>
+            <span className="text-white/90">Discover & Share</span>
             <br />
-            <span className="bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400 bg-clip-text text-transparent font-normal">Masterfully Printed</span>
+            <span className="bg-gradient-to-r from-amber-300 via-orange-400 to-rose-400 bg-clip-text text-transparent font-normal">Digital Artistry</span>
           </h2>
 
           <p className="text-lg text-white/40 max-w-2xl mx-auto mb-10 font-light leading-relaxed">
-            Transform your digital creations into gallery-worthy pieces. Premium archival printing on museum-grade materials.
+            Explore a curated collection of digital art. Upload your creations with AI-powered descriptions, organize them into series, and share your artistic vision.
           </p>
 
-          <div className="flex flex-wrap justify-center gap-4">
-            {user ? (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="group px-8 py-4 rounded-full bg-white text-[#0a0a0b] font-medium transition-all duration-300 hover:shadow-xl hover:shadow-white/10 hover:scale-[1.02] active:scale-[0.98]"
-              >
-                Upload Multiple Images
-                <svg className="inline-block w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowAuthModal(true)}
-                className="group px-8 py-4 rounded-full bg-white text-[#0a0a0b] font-medium transition-all duration-300 hover:shadow-xl hover:shadow-white/10 hover:scale-[1.02] active:scale-[0.98]"
-              >
-                Sign In to Upload
-                <svg className="inline-block w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                </svg>
-              </button>
-            )}
+          {!user && (
             <button
-              onClick={scrollToGallery}
-              className="px-8 py-4 rounded-full border border-white/20 text-white/80 font-medium hover:bg-white/5 hover:border-white/30 transition-all duration-300"
+              onClick={() => setShowAuthModal(true)}
+              className="group px-8 py-4 rounded-full bg-white text-[#0a0a0b] font-medium transition-all duration-300 hover:shadow-xl hover:shadow-white/10 hover:scale-[1.02] active:scale-[0.98]"
             >
-              View Collection
+              Sign In to Upload
+              <svg className="inline-block w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+              </svg>
             </button>
-          </div>
+          )}
         </div>
       </section>
 
@@ -1690,6 +1873,7 @@ export default function ArtGallery() {
             <div className="flex items-center gap-2 shrink-0">
               <span className="text-white/40 text-sm">Sort:</span>
               {[
+                { value: 'curated', label: 'Curated' },
                 { value: 'newest', label: 'Newest' },
                 { value: 'oldest', label: 'Oldest' },
                 { value: 'title', label: 'A-Z' },
@@ -1722,24 +1906,6 @@ export default function ArtGallery() {
           >
             <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-                {/* Upload Card - only show for users with upload permission (Admin/Artist) */}
-                {canUpload(user) && (
-                  <article
-                    onClick={() => fileInputRef.current?.click()}
-                    className="group relative bg-gradient-to-br from-white/[0.03] to-transparent rounded-3xl overflow-hidden border border-dashed border-white/10 hover:border-amber-500/40 cursor-pointer transition-all duration-500 hover:shadow-2xl hover:shadow-amber-500/5"
-                  >
-                    <div className="aspect-[4/5] flex flex-col items-center justify-center p-8">
-                      <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mb-6 group-hover:bg-amber-500/10 group-hover:scale-110 transition-all duration-500">
-                        <svg className="w-8 h-8 text-white/30 group-hover:text-amber-400 transition-colors duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
-                        </svg>
-                      </div>
-                      <span className="text-lg font-medium text-white/50 group-hover:text-white/80 transition-colors duration-300">Upload Artworks</span>
-                      <span className="text-sm text-white/30 mt-2">We'll help you craft the perfect description</span>
-                    </div>
-                  </article>
-                )}
-
                 {/* Gallery Items - Series Folders & Standalone Artworks */}
                 {orderedGalleryItems.map((item, index) => (
                   <SortableArtworkCard
@@ -1748,59 +1914,66 @@ export default function ArtGallery() {
                     disabled={!user || getUserRole(user) !== USER_ROLES.ADMIN}
                   >
                     {item.type === 'series' ? (
-                      // Series Card - Stacked Deck Style (fan of cards)
+                      // Series Card - Stacked Deck Style with auto-rotation
                       <article
                         onClick={() => openSeriesFolder(item)}
                         className="group relative cursor-pointer transition-all duration-500"
                         style={{ animationDelay: `${index * 100}ms` }}
                       >
+                  {(() => {
+                    const rotationIndex = seriesDeckRotation[item.name] || 0;
+                    const getRotatedArtwork = (offset) => {
+                      const idx = (rotationIndex + offset) % item.artworks.length;
+                      return item.artworks[idx];
+                    };
+                    return (
                   <div className="aspect-[4/5] relative pt-3 pl-3">
-                    {/* Background cards - fanned out for deck effect */}
-                    {item.artworks.length > 2 && item.artworks[2] && (
+                    {/* Background cards - fanned out for deck effect with rotation */}
+                    {item.artworks.length > 2 && (
                       <div
-                        className="absolute rounded-2xl overflow-hidden shadow-lg transition-all duration-500 group-hover:translate-x-3 group-hover:-translate-y-1"
+                        className="absolute rounded-2xl overflow-hidden shadow-lg transition-all duration-700 group-hover:translate-x-4 group-hover:-translate-y-2"
                         style={{
-                          top: '0px',
-                          left: '0px',
-                          right: '24px',
-                          bottom: '24px',
+                          top: '-4px',
+                          left: '-4px',
+                          right: '20px',
+                          bottom: '20px',
                           zIndex: 1,
-                          transform: 'rotate(-6deg)',
+                          transform: 'rotate(-8deg) translateX(-8px)',
                         }}
                       >
                         <div className="w-full h-full bg-[#1a1a1c]">
                           <img
-                            src={item.artworks[2].image}
+                            src={getRotatedArtwork(2)?.image}
                             alt=""
-                            className="w-full h-full object-cover opacity-70"
+                            className="w-full h-full object-cover opacity-80 transition-opacity duration-700"
                           />
                         </div>
                       </div>
                     )}
 
-                    {item.artworks.length > 1 && item.artworks[1] && (
+                    {item.artworks.length > 1 && (
                       <div
-                        className="absolute rounded-2xl overflow-hidden shadow-lg transition-all duration-500 group-hover:translate-x-2 group-hover:-translate-y-0.5"
+                        className="absolute rounded-2xl overflow-hidden shadow-lg transition-all duration-700 group-hover:translate-x-3 group-hover:-translate-y-1"
                         style={{
-                          top: '6px',
-                          left: '6px',
-                          right: '18px',
-                          bottom: '18px',
+                          top: '4px',
+                          left: '4px',
+                          right: '16px',
+                          bottom: '16px',
                           zIndex: 2,
-                          transform: 'rotate(-3deg)',
+                          transform: 'rotate(-4deg) translateX(-4px)',
                         }}
                       >
                         <div className="w-full h-full bg-[#1a1a1c]">
                           <img
-                            src={item.artworks[1].image}
+                            src={getRotatedArtwork(1)?.image}
                             alt=""
-                            className="w-full h-full object-cover opacity-80"
+                            className="w-full h-full object-cover opacity-90 transition-opacity duration-700"
                           />
                         </div>
                       </div>
                     )}
 
-                    {/* Top card - main visible card */}
+                    {/* Top card - main visible card with rotation animation */}
                     <div
                       className="absolute rounded-2xl overflow-hidden shadow-2xl ring-2 ring-amber-500/40 group-hover:ring-amber-500/70 transition-all duration-500 group-hover:shadow-amber-500/20 group-hover:translate-x-1"
                       style={{
@@ -1813,9 +1986,11 @@ export default function ArtGallery() {
                     >
                       <div className="w-full h-full relative">
                         <img
-                          src={item.artworks[0]?.image}
-                          alt={item.artworks[0]?.title}
-                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                          src={getRotatedArtwork(0)?.image}
+                          alt={getRotatedArtwork(0)?.title}
+                          loading="lazy"
+                          decoding="async"
+                          className="w-full h-full object-cover transition-all duration-700 group-hover:scale-105"
                         />
 
                         {/* Series badge */}
@@ -1825,6 +2000,22 @@ export default function ArtGallery() {
                           </svg>
                           {item.artworks.length}
                         </div>
+
+                        {/* Rotation dots indicator */}
+                        {item.artworks.length > 1 && (
+                          <div className="absolute top-4 right-4 flex gap-1">
+                            {item.artworks.slice(0, Math.min(5, item.artworks.length)).map((_, i) => (
+                              <div
+                                key={i}
+                                className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+                                  i === rotationIndex % Math.min(5, item.artworks.length)
+                                    ? 'bg-white scale-125'
+                                    : 'bg-white/40'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        )}
 
                         {/* Gradient overlay */}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
@@ -1847,6 +2038,8 @@ export default function ArtGallery() {
                       </div>
                     </div>
                   </div>
+                    );
+                  })()}
                       </article>
                     ) : (
                       // Regular Artwork Card
@@ -1912,6 +2105,8 @@ export default function ArtGallery() {
                     <img
                       src={item.image}
                       alt={item.title}
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover object-center transition-all duration-700 group-hover:scale-110"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0b] via-[#0a0a0b]/20 to-transparent opacity-60" />
@@ -2081,7 +2276,7 @@ export default function ArtGallery() {
                             {i + 1} / {openSeries.artworks.length}
                           </div>
 
-                          {/* Star and Fullscreen buttons - only on active card */}
+                          {/* Star, Edit, and Fullscreen buttons - only on active card */}
                           {isActive && (
                             <>
                               <button
@@ -2101,6 +2296,17 @@ export default function ArtGallery() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
                                 </svg>
                               </button>
+                              {/* Edit button - show for users with permission */}
+                              {canEdit(user, art) && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); closeSeriesFolder(); openEditModal(art, e); }}
+                                  className="absolute top-4 left-16 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white/80 hover:bg-black/70 hover:text-white transition-all"
+                                >
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                  </svg>
+                                </button>
+                              )}
                               <button
                                 onClick={(e) => { e.stopPropagation(); openFullscreen(art, openSeries.artworks); }}
                                 className="absolute bottom-4 right-4 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white/80 hover:bg-black/70 hover:text-white transition-all"
@@ -2148,25 +2354,85 @@ export default function ArtGallery() {
               </button>
             </div>
 
-            {/* Dot indicators */}
-            <div className="flex justify-center gap-2 py-6">
-              {openSeries.artworks.map((_, i) => (
-                <button
-                  key={i}
-                  onClick={() => setSeriesViewIndex(i)}
-                  className={`w-2 h-2 rounded-full transition-all ${
-                    i === seriesViewIndex
-                      ? 'bg-amber-500 w-6'
-                      : 'bg-white/20 hover:bg-white/40'
-                  }`}
-                />
-              ))}
+            {/* Thumbnail strip - draggable for admin */}
+            <div className="px-4 py-4 pt-8">
+              {getUserRole(user) === USER_ROLES.ADMIN ? (
+                <div className="flex flex-col items-center gap-2">
+                  <span className="text-white/40 text-xs hidden md:block">Drag to reorder</span>
+                  <span className="text-white/40 text-xs md:hidden">Tap arrows to reorder</span>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(event) => {
+                      const { active, over } = event;
+                      if (over && active.id !== over.id) {
+                        const oldIndex = openSeries.artworks.findIndex(a => a.id === active.id);
+                        const newIndex = openSeries.artworks.findIndex(a => a.id === over.id);
+                        reorderSeriesArtwork(openSeries.name, oldIndex, newIndex);
+                        // Update view index if needed
+                        if (seriesViewIndex === oldIndex) {
+                          setSeriesViewIndex(newIndex);
+                        } else if (seriesViewIndex > oldIndex && seriesViewIndex <= newIndex) {
+                          setSeriesViewIndex(seriesViewIndex - 1);
+                        } else if (seriesViewIndex < oldIndex && seriesViewIndex >= newIndex) {
+                          setSeriesViewIndex(seriesViewIndex + 1);
+                        }
+                      }
+                    }}
+                  >
+                    <SortableContext items={openSeries.artworks.map(a => a.id)} strategy={rectSortingStrategy}>
+                      <div className="flex justify-center gap-2 md:gap-3 overflow-x-auto max-w-full pb-2 px-2">
+                        {openSeries.artworks.map((art, i) => (
+                          <SortableSeriesThumbnail
+                            key={art.id}
+                            art={art}
+                            index={i}
+                            isActive={i === seriesViewIndex}
+                            onClick={() => setSeriesViewIndex(i)}
+                            isFirst={i === 0}
+                            isLast={i === openSeries.artworks.length - 1}
+                            totalCount={openSeries.artworks.length}
+                            onMoveLeft={() => {
+                              if (i > 0) {
+                                reorderSeriesArtwork(openSeries.name, i, i - 1);
+                                if (seriesViewIndex === i) setSeriesViewIndex(i - 1);
+                              }
+                            }}
+                            onMoveRight={() => {
+                              if (i < openSeries.artworks.length - 1) {
+                                reorderSeriesArtwork(openSeries.name, i, i + 1);
+                                if (seriesViewIndex === i) setSeriesViewIndex(i + 1);
+                              }
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </div>
+              ) : (
+                <div className="flex justify-center gap-2">
+                  {openSeries.artworks.map((art, i) => (
+                    <button
+                      key={art.id}
+                      onClick={() => setSeriesViewIndex(i)}
+                      className={`w-12 h-12 rounded-lg overflow-hidden transition-all ${
+                        i === seriesViewIndex
+                          ? 'ring-2 ring-amber-500 scale-110'
+                          : 'opacity-50 hover:opacity-80'
+                      }`}
+                    >
+                      <img src={art.image} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Navigation hint */}
             <div className="text-center pb-4">
               <span className="text-white/30 text-xs hidden sm:inline">
-                Use arrow keys to navigate or click cards to jump
+                Use arrow keys to navigate • Click thumbnails to jump
               </span>
               <span className="text-white/30 text-xs sm:hidden">
                 Swipe left/right to navigate
@@ -3182,11 +3448,11 @@ export default function ArtGallery() {
       {/* About Modal */}
       {showAbout && (
         <div
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 overflow-y-auto"
           onClick={() => setShowAbout(false)}
         >
           <div
-            className="bg-[#141416] rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl"
+            className="bg-[#141416] rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl my-8"
             onClick={e => e.stopPropagation()}
           >
             <div className="p-8">
@@ -3195,15 +3461,67 @@ export default function ArtGallery() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               </div>
-              <h3 className="text-2xl font-semibold mb-4">About HiPeR Gallery</h3>
-              <p className="text-white/60 mb-4 leading-relaxed">
-                HiPeR Gallery is your destination for transforming digital art into museum-quality prints.
-                We use premium archival materials and state-of-the-art printing technology.
-              </p>
-              <p className="text-white/60 mb-6 leading-relaxed">
-                Upload your artwork, choose your size and frame, and we'll deliver a gallery-worthy
-                piece right to your door.
-              </p>
+              <h3 className="text-2xl font-semibold mb-4">Welcome to HiPeR Gallery</h3>
+
+              <div className="space-y-4 text-white/60 leading-relaxed mb-6">
+                <p>
+                  HiPeR Gallery is an innovative digital art platform where creativity meets technology.
+                  Our curated collection showcases diverse artistic expressions spanning abstract, surreal,
+                  landscape, portrait, and digital art forms.
+                </p>
+
+                <div className="bg-white/5 rounded-xl p-4">
+                  <h4 className="text-white font-medium mb-2">What You Can Do</h4>
+                  <ul className="space-y-2 text-sm">
+                    <li className="flex items-start gap-2">
+                      <span className="text-amber-400 mt-1">•</span>
+                      <span><strong className="text-white/80">Explore</strong> — Browse our gallery of unique artworks, organized by categories and curated series</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-amber-400 mt-1">•</span>
+                      <span><strong className="text-white/80">Upload</strong> — Share your own creations with our AI-powered description generator that crafts compelling narratives for each piece</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-amber-400 mt-1">•</span>
+                      <span><strong className="text-white/80">Organize</strong> — Create and manage art series, group related works, and curate your collection</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-amber-400 mt-1">•</span>
+                      <span><strong className="text-white/80">Collect</strong> — Save your favorites, track your preferred pieces, and build your personal gallery</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-amber-400 mt-1">•</span>
+                      <span><strong className="text-white/80">Export</strong> — Back up your collection to JSON or export to Notion-friendly markdown</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <p>
+                  Whether you're an artist looking to showcase your work or an art enthusiast exploring new
+                  visual experiences, HiPeR Gallery provides an immersive, beautifully designed space for
+                  discovering and sharing digital art.
+                </p>
+
+                <div className="flex items-center gap-4 pt-2">
+                  <div className="text-center flex-1">
+                    <div className="text-2xl font-bold text-amber-400">{artworks.length}</div>
+                    <div className="text-xs text-white/40 uppercase tracking-wider">Artworks</div>
+                  </div>
+                  <div className="w-px h-10 bg-white/10" />
+                  <div className="text-center flex-1">
+                    <div className="text-2xl font-bold text-amber-400">
+                      {[...new Set(artworks.filter(a => a.seriesName).map(a => a.seriesName))].length}
+                    </div>
+                    <div className="text-xs text-white/40 uppercase tracking-wider">Series</div>
+                  </div>
+                  <div className="w-px h-10 bg-white/10" />
+                  <div className="text-center flex-1">
+                    <div className="text-2xl font-bold text-amber-400">{categories.length}</div>
+                    <div className="text-xs text-white/40 uppercase tracking-wider">Categories</div>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex gap-4">
                 <button
                   onClick={() => setShowAbout(false)}
@@ -3251,7 +3569,7 @@ export default function ArtGallery() {
                     <label className="block text-sm text-white/50 mb-2">Title *</label>
                     <input
                       type="text"
-                      value={editingArt.title}
+                      value={editingArt.title || ''}
                       onChange={e => setEditingArt({ ...editingArt, title: e.target.value })}
                       placeholder="Enter artwork title"
                       className="w-full px-5 py-4 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all placeholder:text-white/20"
@@ -3262,7 +3580,7 @@ export default function ArtGallery() {
                     <label className="block text-sm text-white/50 mb-2">Style / Medium</label>
                     <input
                       type="text"
-                      value={editingArt.style}
+                      value={editingArt.style || ''}
                       onChange={e => setEditingArt({ ...editingArt, style: e.target.value })}
                       placeholder="e.g., Digital Art, Photography, Oil Painting"
                       className="w-full px-5 py-4 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all placeholder:text-white/20"
@@ -3354,7 +3672,7 @@ export default function ArtGallery() {
                   <div>
                     <label className="block text-sm text-white/50 mb-2">Description</label>
                     <textarea
-                      value={editingArt.description}
+                      value={editingArt.description || ''}
                       onChange={e => setEditingArt({ ...editingArt, description: e.target.value })}
                       placeholder="Tell the story behind your artwork..."
                       rows={3}
