@@ -3,6 +3,7 @@ import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { createProdigiOrder, isProdigiConfigured } from './services/prodigi';
 
 const defaultArtworks = [
   { id: 1, title: "Ethereal Dreams", artist: "HiPeR Gallery", style: "Abstract Expressionism", category: "abstract", description: "A mesmerizing exploration of color and form, where dreams meet reality in an ethereal dance of light.", image: "https://images.unsplash.com/photo-1541961017774-22349e4a1262?w=800&h=800&fit=crop", isDefault: true },
@@ -301,6 +302,19 @@ export default function ArtGallery() {
   const [selectedFrame, setSelectedFrame] = useState(1);
   const [cart, setCart] = useState([]);
   const [showCart, setShowCart] = useState(false);
+  const [checkoutStep, setCheckoutStep] = useState('cart'); // 'cart', 'shipping', 'processing', 'complete'
+  const [shippingInfo, setShippingInfo] = useState({
+    name: '',
+    email: '',
+    line1: '',
+    line2: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    country: 'US',
+  });
+  const [orderResult, setOrderResult] = useState(null);
+  const [isProcessingOrder, setIsProcessingOrder] = useState(false);
   const [toast, setToast] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingArt, setEditingArt] = useState(null);
@@ -314,6 +328,24 @@ export default function ArtGallery() {
 
   // Analytics state
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState(() => {
+    const saved = localStorage.getItem('hiperGalleryAnalytics');
+    return saved ? JSON.parse(saved) : {
+      totalViews: 0,
+      artworkViews: {}, // { artworkId: count }
+      seriesViews: {}, // { seriesName: count }
+      categoryViews: {}, // { category: count }
+      dailyVisits: {}, // { date: count }
+      lastVisit: null,
+      sessionCount: 0,
+      avgSessionDuration: 0,
+      peakHour: null,
+      hourlyActivity: {}, // { hour: count }
+      deviceTypes: { mobile: 0, tablet: 0, desktop: 0 },
+      favoriteActions: 0,
+      uploadCount: 0,
+    };
+  });
 
   // Drag and drop state
   const [activeId, setActiveId] = useState(null);
@@ -512,6 +544,8 @@ export default function ArtGallery() {
       // Add isNew flag and save to localStorage
       const artworksToAdd = newArtworks.map(a => ({ ...a, isNew: true }));
       setArtworks(prev => [...artworksToAdd, ...prev]);
+      // Track each imported artwork as an upload
+      artworksToAdd.forEach(() => trackUpload());
 
       // Save to localStorage
       const savedArtworks = JSON.parse(localStorage.getItem('hiperGalleryArtworks') || '[]');
@@ -583,6 +617,92 @@ export default function ArtGallery() {
 
     showToastMessage('Description generated!');
   };
+
+  // Analytics tracking functions
+  const trackPageView = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const hour = new Date().getHours();
+    const isMobile = window.innerWidth < 768;
+    const isTablet = window.innerWidth >= 768 && window.innerWidth < 1024;
+
+    setAnalyticsData(prev => {
+      const updated = {
+        ...prev,
+        totalViews: prev.totalViews + 1,
+        dailyVisits: {
+          ...prev.dailyVisits,
+          [today]: (prev.dailyVisits[today] || 0) + 1,
+        },
+        hourlyActivity: {
+          ...prev.hourlyActivity,
+          [hour]: (prev.hourlyActivity[hour] || 0) + 1,
+        },
+        deviceTypes: {
+          ...prev.deviceTypes,
+          mobile: prev.deviceTypes.mobile + (isMobile ? 1 : 0),
+          tablet: prev.deviceTypes.tablet + (isTablet ? 1 : 0),
+          desktop: prev.deviceTypes.desktop + (!isMobile && !isTablet ? 1 : 0),
+        },
+        lastVisit: new Date().toISOString(),
+        sessionCount: prev.sessionCount + 1,
+      };
+      localStorage.setItem('hiperGalleryAnalytics', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const trackArtworkView = (artworkId, category) => {
+    setAnalyticsData(prev => {
+      const updated = {
+        ...prev,
+        artworkViews: {
+          ...prev.artworkViews,
+          [artworkId]: (prev.artworkViews[artworkId] || 0) + 1,
+        },
+        categoryViews: {
+          ...prev.categoryViews,
+          [category]: (prev.categoryViews[category] || 0) + 1,
+        },
+      };
+      localStorage.setItem('hiperGalleryAnalytics', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const trackSeriesView = (seriesName) => {
+    setAnalyticsData(prev => {
+      const updated = {
+        ...prev,
+        seriesViews: {
+          ...prev.seriesViews,
+          [seriesName]: (prev.seriesViews[seriesName] || 0) + 1,
+        },
+      };
+      localStorage.setItem('hiperGalleryAnalytics', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const trackFavoriteAction = () => {
+    setAnalyticsData(prev => {
+      const updated = { ...prev, favoriteActions: prev.favoriteActions + 1 };
+      localStorage.setItem('hiperGalleryAnalytics', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const trackUpload = () => {
+    setAnalyticsData(prev => {
+      const updated = { ...prev, uploadCount: prev.uploadCount + 1 };
+      localStorage.setItem('hiperGalleryAnalytics', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // Track page view on mount
+  useEffect(() => {
+    trackPageView();
+  }, []);
 
   // Check auth state on mount
   useEffect(() => {
@@ -662,6 +782,8 @@ export default function ArtGallery() {
       localStorage.setItem('hiperGalleryFavorites', JSON.stringify(newFavorites));
       return newFavorites;
     });
+    // Track favorite action
+    trackFavoriteAction();
   };
 
   const isFavorite = (artworkId) => favorites.includes(artworkId);
@@ -673,6 +795,8 @@ export default function ArtGallery() {
     setFullscreenArtworks(list);
     setFullscreenIndex(index >= 0 ? index : 0);
     setFullscreenImage(artwork.image);
+    // Track artwork view
+    trackArtworkView(artwork.id, artwork.category || 'unknown');
   };
 
   // Navigate in fullscreen
@@ -1221,6 +1345,8 @@ export default function ArtGallery() {
   const openSeriesFolder = (series) => {
     setOpenSeries(series);
     setSeriesViewIndex(0);
+    // Track series view
+    trackSeriesView(series.name || series.seriesName || 'unknown');
   };
 
   // Navigate within series
@@ -1377,6 +1503,8 @@ export default function ArtGallery() {
     }
 
     setArtworks(prev => [...savedArtworks, ...prev]);
+    // Track uploads for each artwork in series
+    savedArtworks.forEach(() => trackUpload());
     setPendingUploads([]);
     setCurrentUploadIndex(0);
     setIsSeriesMode(false);
@@ -1477,6 +1605,8 @@ export default function ArtGallery() {
 
     if (savedArtwork) {
       setArtworks(prev => [savedArtwork, ...prev]);
+      // Track upload
+      trackUpload();
     }
 
     // Move to next upload or finish
@@ -1703,15 +1833,84 @@ export default function ArtGallery() {
 
   const handleCheckout = () => {
     if (cart.length === 0) return;
-    const total = cartTotal;
-    const itemCount = cart.length;
-    setCart([]);
-    setShowCart(false);
-    showToastMessage(`Order placed! ${itemCount} item${itemCount > 1 ? 's' : ''} for $${total}`);
+    // Move to shipping step
+    setCheckoutStep('shipping');
+    // Pre-fill email if user is logged in
+    if (user?.email) {
+      setShippingInfo(prev => ({ ...prev, email: user.email }));
+    }
+  };
+
+  const handleShippingSubmit = async (e) => {
+    e.preventDefault();
+
+    // Validate required fields
+    if (!shippingInfo.name || !shippingInfo.line1 || !shippingInfo.city ||
+        !shippingInfo.state || !shippingInfo.postalCode || !shippingInfo.email) {
+      showToastMessage('Please fill in all required fields', 'error');
+      return;
+    }
+
+    setCheckoutStep('processing');
+    setIsProcessingOrder(true);
+
+    // Check if Prodigi is configured
+    if (!isProdigiConfigured()) {
+      // Demo mode - simulate order
+      setTimeout(() => {
+        setOrderResult({
+          success: true,
+          orderId: `DEMO-${Date.now()}`,
+          message: 'Demo order placed! Configure Prodigi API for real fulfillment.',
+        });
+        setCheckoutStep('complete');
+        setIsProcessingOrder(false);
+      }, 2000);
+      return;
+    }
+
+    // Create real Prodigi order
+    const result = await createProdigiOrder({
+      items: cart,
+      shippingAddress: {
+        name: shippingInfo.name,
+        line1: shippingInfo.line1,
+        line2: shippingInfo.line2,
+        city: shippingInfo.city,
+        state: shippingInfo.state,
+        postalCode: shippingInfo.postalCode,
+        country: shippingInfo.country,
+      },
+      customerEmail: shippingInfo.email,
+    });
+
+    setOrderResult(result);
+    setCheckoutStep('complete');
+    setIsProcessingOrder(false);
+
+    if (result.success) {
+      setCart([]);
+    }
+  };
+
+  const resetCheckout = () => {
+    setCheckoutStep('cart');
+    setOrderResult(null);
+    setShippingInfo({
+      name: '',
+      email: '',
+      line1: '',
+      line2: '',
+      city: '',
+      state: '',
+      postalCode: '',
+      country: 'US',
+    });
   };
 
   const clearCart = () => {
     setCart([]);
+    setCheckoutStep('cart');
     showToastMessage('Cart cleared');
   };
 
@@ -3529,130 +3728,317 @@ export default function ArtGallery() {
       {/* Analytics Modal */}
       {showAnalytics && getUserRole(user) === USER_ROLES.ADMIN && (
         <div
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 overflow-y-auto"
           onClick={() => setShowAnalytics(false)}
         >
           <div
-            className="bg-[#141416] rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl"
+            className="bg-[#141416] rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl my-8"
             onClick={e => e.stopPropagation()}
           >
-            <div className="p-8 border-b border-white/5">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            <div className="p-6 border-b border-white/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold">Gallery Analytics</h3>
+                    <p className="text-sm text-white/40">Comprehensive insights into your gallery</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAnalytics(false)}
+                  className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold">Gallery Analytics</h3>
-                  <p className="text-sm text-white/40">Overview of your gallery's performance</p>
-                </div>
+                </button>
               </div>
             </div>
 
-            <div className="p-8 overflow-y-auto max-h-[60vh]">
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+              {/* Key Metrics */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                 <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30">
-                  <p className="text-3xl font-bold text-amber-400">{artworks.length}</p>
-                  <p className="text-sm text-white/50">Total Artworks</p>
+                  <p className="text-3xl font-bold text-amber-400">{analyticsData.totalViews}</p>
+                  <p className="text-xs text-white/50">Total Page Views</p>
                 </div>
                 <div className="p-4 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/30">
-                  <p className="text-3xl font-bold text-blue-400">{artworks.filter(a => !a.isDefault).length}</p>
-                  <p className="text-sm text-white/50">Your Uploads</p>
+                  <p className="text-3xl font-bold text-blue-400">{analyticsData.sessionCount}</p>
+                  <p className="text-xs text-white/50">Sessions</p>
                 </div>
                 <div className="p-4 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30">
-                  <p className="text-3xl font-bold text-purple-400">{favorites.length}</p>
-                  <p className="text-sm text-white/50">Favorites</p>
+                  <p className="text-3xl font-bold text-purple-400">{analyticsData.favoriteActions}</p>
+                  <p className="text-xs text-white/50">Favorite Actions</p>
                 </div>
                 <div className="p-4 rounded-xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
-                  <p className="text-3xl font-bold text-green-400">
+                  <p className="text-3xl font-bold text-green-400">{analyticsData.uploadCount}</p>
+                  <p className="text-xs text-white/50">Uploads</p>
+                </div>
+              </div>
+
+              {/* Gallery Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                  <p className="text-2xl font-bold text-white">{artworks.length}</p>
+                  <p className="text-xs text-white/50">Total Artworks</p>
+                </div>
+                <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                  <p className="text-2xl font-bold text-white">{artworks.filter(a => !a.isDefault).length}</p>
+                  <p className="text-xs text-white/50">User Uploads</p>
+                </div>
+                <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                  <p className="text-2xl font-bold text-white">{favorites.length}</p>
+                  <p className="text-xs text-white/50">Favorites</p>
+                </div>
+                <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                  <p className="text-2xl font-bold text-white">
                     {[...new Set(artworks.filter(a => a.seriesName).map(a => a.seriesName))].length}
                   </p>
-                  <p className="text-sm text-white/50">Series</p>
+                  <p className="text-xs text-white/50">Series</p>
                 </div>
               </div>
 
-              {/* Category Breakdown */}
-              <div className="mb-8">
-                <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider mb-4">By Category</h4>
-                <div className="space-y-3">
-                  {categories.map(cat => {
-                    const count = artworks.filter(a => a.category === cat).length;
-                    const percentage = artworks.length > 0 ? (count / artworks.length) * 100 : 0;
-                    return (
-                      <div key={cat} className="flex items-center gap-3">
-                        <span className="w-24 text-sm text-white/60 capitalize">{cat}</span>
-                        <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500"
-                            style={{ width: `${percentage}%` }}
-                          />
-                        </div>
-                        <span className="w-8 text-sm text-white/40 text-right">{count}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Favorited Works */}
-              {favorites.length > 0 && (
-                <div className="mb-8">
-                  <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider mb-4">Favorited Works</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {favorites.slice(0, 10).map(favId => {
-                      const art = artworks.find(a => a.id === favId);
-                      if (!art) return null;
-                      return (
-                        <div
-                          key={favId}
-                          className="w-16 h-16 rounded-lg overflow-hidden ring-2 ring-amber-500/50"
-                          title={art.title}
-                        >
-                          <img src={art.image} alt={art.title} className="w-full h-full object-cover" />
-                        </div>
-                      );
-                    })}
-                    {favorites.length > 10 && (
-                      <div className="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-sm text-white/50">
-                        +{favorites.length - 10}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Series List */}
-              {(() => {
-                const seriesNames = [...new Set(artworks.filter(a => a.seriesName).map(a => a.seriesName))];
-                if (seriesNames.length === 0) return null;
-                return (
-                  <div>
-                    <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider mb-4">Series</h4>
-                    <div className="space-y-2">
-                      {seriesNames.map(name => {
-                        const seriesArtworks = artworks.filter(a => a.seriesName === name);
+              {/* Two Column Layout */}
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* Left Column */}
+                <div className="space-y-6">
+                  {/* Device Breakdown */}
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                    <h4 className="text-sm font-medium text-white/70 mb-4 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                      Device Types
+                    </h4>
+                    <div className="space-y-3">
+                      {[
+                        { label: 'Desktop', count: analyticsData.deviceTypes.desktop, icon: '🖥️', color: 'from-blue-500 to-cyan-500' },
+                        { label: 'Tablet', count: analyticsData.deviceTypes.tablet, icon: '📱', color: 'from-purple-500 to-pink-500' },
+                        { label: 'Mobile', count: analyticsData.deviceTypes.mobile, icon: '📲', color: 'from-green-500 to-emerald-500' },
+                      ].map(device => {
+                        const total = analyticsData.deviceTypes.desktop + analyticsData.deviceTypes.tablet + analyticsData.deviceTypes.mobile;
+                        const pct = total > 0 ? (device.count / total) * 100 : 0;
                         return (
-                          <div key={name} className="flex items-center justify-between p-3 rounded-xl bg-white/5">
-                            <span className="font-medium">{name}</span>
-                            <span className="text-sm text-amber-400">{seriesArtworks.length} pieces</span>
+                          <div key={device.label} className="flex items-center gap-3">
+                            <span className="text-lg">{device.icon}</span>
+                            <span className="w-16 text-sm text-white/60">{device.label}</span>
+                            <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                              <div className={`h-full rounded-full bg-gradient-to-r ${device.color}`} style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="w-12 text-sm text-white/40 text-right">{device.count}</span>
                           </div>
                         );
                       })}
                     </div>
                   </div>
-                );
-              })()}
-            </div>
 
-            <div className="p-8 border-t border-white/5">
-              <button
-                onClick={() => setShowAnalytics(false)}
-                className="w-full py-4 rounded-xl border border-white/10 text-white/70 font-medium hover:bg-white/5 transition-all"
-              >
-                Close
-              </button>
+                  {/* Hourly Activity */}
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                    <h4 className="text-sm font-medium text-white/70 mb-4 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Activity by Hour
+                    </h4>
+                    <div className="flex items-end gap-1 h-20">
+                      {Array.from({ length: 24 }, (_, i) => {
+                        const count = analyticsData.hourlyActivity[i] || 0;
+                        const maxCount = Math.max(...Object.values(analyticsData.hourlyActivity || { 0: 1 }), 1);
+                        const height = (count / maxCount) * 100;
+                        return (
+                          <div
+                            key={i}
+                            className="flex-1 bg-gradient-to-t from-amber-500 to-orange-400 rounded-t opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
+                            style={{ height: `${Math.max(height, 4)}%` }}
+                            title={`${i}:00 - ${count} visits`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between mt-2 text-xs text-white/30">
+                      <span>12am</span>
+                      <span>6am</span>
+                      <span>12pm</span>
+                      <span>6pm</span>
+                      <span>11pm</span>
+                    </div>
+                  </div>
+
+                  {/* Recent Activity */}
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                    <h4 className="text-sm font-medium text-white/70 mb-4 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      Daily Visits (Last 7 Days)
+                    </h4>
+                    <div className="space-y-2">
+                      {Object.entries(analyticsData.dailyVisits || {})
+                        .sort((a, b) => b[0].localeCompare(a[0]))
+                        .slice(0, 7)
+                        .map(([date, count]) => {
+                          const maxCount = Math.max(...Object.values(analyticsData.dailyVisits || { 0: 1 }), 1);
+                          const pct = (count / maxCount) * 100;
+                          return (
+                            <div key={date} className="flex items-center gap-3">
+                              <span className="w-20 text-xs text-white/50">{new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                              <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                                <div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-pink-500" style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="w-8 text-xs text-white/40 text-right">{count}</span>
+                            </div>
+                          );
+                        })}
+                      {Object.keys(analyticsData.dailyVisits || {}).length === 0 && (
+                        <p className="text-sm text-white/30 text-center py-4">No visit data yet</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="space-y-6">
+                  {/* Category Breakdown */}
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                    <h4 className="text-sm font-medium text-white/70 mb-4 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                      </svg>
+                      Artworks by Category
+                    </h4>
+                    <div className="space-y-2">
+                      {categories.map(cat => {
+                        const count = artworks.filter(a => a.category === cat).length;
+                        const percentage = artworks.length > 0 ? (count / artworks.length) * 100 : 0;
+                        if (count === 0) return null;
+                        return (
+                          <div key={cat} className="flex items-center gap-3">
+                            <span className="w-20 text-xs text-white/60 capitalize truncate">{cat}</span>
+                            <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                              <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500" style={{ width: `${percentage}%` }} />
+                            </div>
+                            <span className="w-8 text-xs text-white/40 text-right">{count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Top Viewed Artworks */}
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                    <h4 className="text-sm font-medium text-white/70 mb-4 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                      Most Viewed Artworks
+                    </h4>
+                    <div className="space-y-2">
+                      {Object.entries(analyticsData.artworkViews || {})
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 5)
+                        .map(([id, views]) => {
+                          const art = artworks.find(a => String(a.id) === String(id));
+                          if (!art) return null;
+                          return (
+                            <div key={id} className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/10 flex-shrink-0">
+                                <img src={art.image} alt={art.title} className="w-full h-full object-cover" />
+                              </div>
+                              <span className="flex-1 text-sm text-white/70 truncate">{art.title}</span>
+                              <span className="text-sm text-amber-400 font-medium">{views} views</span>
+                            </div>
+                          );
+                        })}
+                      {Object.keys(analyticsData.artworkViews || {}).length === 0 && (
+                        <p className="text-sm text-white/30 text-center py-4">No view data yet</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Series Performance */}
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                    <h4 className="text-sm font-medium text-white/70 mb-4 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                      </svg>
+                      Series Performance
+                    </h4>
+                    <div className="space-y-2">
+                      {(() => {
+                        const seriesNames = [...new Set(artworks.filter(a => a.seriesName).map(a => a.seriesName))];
+                        if (seriesNames.length === 0) return <p className="text-sm text-white/30 text-center py-4">No series yet</p>;
+                        return seriesNames.map(name => {
+                          const seriesArtworks = artworks.filter(a => a.seriesName === name);
+                          const views = analyticsData.seriesViews?.[name] || 0;
+                          return (
+                            <div key={name} className="flex items-center justify-between p-2 rounded-lg bg-white/5">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-xs font-bold">
+                                  {seriesArtworks.length}
+                                </div>
+                                <span className="text-sm font-medium truncate">{name}</span>
+                              </div>
+                              <span className="text-xs text-white/40">{views} views</span>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Last Visit Info */}
+                  {analyticsData.lastVisit && (
+                    <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                      <h4 className="text-sm font-medium text-white/70 mb-2">Last Activity</h4>
+                      <p className="text-lg text-white/90">
+                        {new Date(analyticsData.lastVisit).toLocaleDateString('en-US', {
+                          weekday: 'long',
+                          month: 'long',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Reset Analytics */}
+              <div className="mt-6 pt-6 border-t border-white/10">
+                <button
+                  onClick={() => {
+                    if (window.confirm('Are you sure you want to reset all analytics data? This cannot be undone.')) {
+                      const fresh = {
+                        totalViews: 0,
+                        artworkViews: {},
+                        seriesViews: {},
+                        categoryViews: {},
+                        dailyVisits: {},
+                        lastVisit: null,
+                        sessionCount: 0,
+                        avgSessionDuration: 0,
+                        peakHour: null,
+                        hourlyActivity: {},
+                        deviceTypes: { mobile: 0, tablet: 0, desktop: 0 },
+                        favoriteActions: 0,
+                        uploadCount: 0,
+                      };
+                      setAnalyticsData(fresh);
+                      localStorage.setItem('hiperGalleryAnalytics', JSON.stringify(fresh));
+                      showToastMessage('Analytics data reset');
+                    }
+                  }}
+                  className="text-sm text-red-400/60 hover:text-red-400 transition-colors"
+                >
+                  Reset Analytics Data
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -4080,16 +4466,26 @@ export default function ArtGallery() {
         <>
           <div
             className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm transition-opacity duration-300"
-            onClick={() => setShowCart(false)}
+            onClick={() => { setShowCart(false); resetCheckout(); }}
           />
           <aside className={`fixed right-0 top-0 bottom-0 w-full max-w-md bg-[#141416] z-50 flex flex-col shadow-2xl transform transition-transform duration-500 ease-out ${showCart ? 'translate-x-0' : 'translate-x-full'}`}>
             <div className="p-6 border-b border-white/5 flex justify-between items-center">
               <div>
-                <h3 className="text-xl font-semibold">Shopping Cart</h3>
-                <p className="text-sm text-white/40 mt-1">{cart.length} {cart.length === 1 ? 'item' : 'items'}</p>
+                <h3 className="text-xl font-semibold">
+                  {checkoutStep === 'cart' && 'Shopping Cart'}
+                  {checkoutStep === 'shipping' && 'Shipping Details'}
+                  {checkoutStep === 'processing' && 'Processing Order'}
+                  {checkoutStep === 'complete' && 'Order Complete'}
+                </h3>
+                {checkoutStep === 'cart' && (
+                  <p className="text-sm text-white/40 mt-1">{cart.length} {cart.length === 1 ? 'item' : 'items'}</p>
+                )}
+                {checkoutStep === 'shipping' && (
+                  <p className="text-sm text-white/40 mt-1">Where should we ship?</p>
+                )}
               </div>
               <button
-                onClick={() => setShowCart(false)}
+                onClick={() => { setShowCart(false); resetCheckout(); }}
                 className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4099,50 +4495,238 @@ export default function ArtGallery() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6">
-              {cart.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center">
-                  <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-6">
-                    <svg className="w-10 h-10 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                    </svg>
-                  </div>
-                  <p className="text-white/40 mb-2">Your cart is empty</p>
-                  <p className="text-sm text-white/20 mb-6">Add some beautiful art to get started</p>
-                  <button
-                    onClick={() => { setShowCart(false); scrollToGallery(); }}
-                    className="px-6 py-3 rounded-full bg-white/10 text-white/70 font-medium hover:bg-white/20 transition-all"
-                  >
-                    Browse Collection
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {cart.map(item => (
-                    <div key={item.id} className="flex gap-4 p-4 rounded-2xl bg-white/5">
-                      <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0">
-                        <img src={item.artwork.image} alt="" className="w-full h-full object-cover" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-medium truncate">{item.artwork.title}</h4>
-                        <p className="text-sm text-white/40 mt-0.5">{item.size.dimensions}</p>
-                        <p className="text-sm text-white/40">{item.frame.label}</p>
-                        <p className="text-amber-400 font-semibold mt-2">${item.total}</p>
-                      </div>
-                      <button
-                        onClick={() => removeFromCart(item.id)}
-                        className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-red-500/20 hover:text-red-400 transition-all self-start flex-shrink-0"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              {/* Cart Step */}
+              {checkoutStep === 'cart' && (
+                <>
+                  {cart.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center">
+                      <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-6">
+                        <svg className="w-10 h-10 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
                         </svg>
+                      </div>
+                      <p className="text-white/40 mb-2">Your cart is empty</p>
+                      <p className="text-sm text-white/20 mb-6">Add some beautiful art to get started</p>
+                      <button
+                        onClick={() => { setShowCart(false); scrollToGallery(); }}
+                        className="px-6 py-3 rounded-full bg-white/10 text-white/70 font-medium hover:bg-white/20 transition-all"
+                      >
+                        Browse Collection
                       </button>
                     </div>
-                  ))}
+                  ) : (
+                    <div className="space-y-4">
+                      {cart.map(item => (
+                        <div key={item.id} className="flex gap-4 p-4 rounded-2xl bg-white/5">
+                          <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0">
+                            <img src={item.artwork.image} alt="" className="w-full h-full object-cover" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-medium truncate">{item.artwork.title}</h4>
+                            <p className="text-sm text-white/40 mt-0.5">{item.size.dimensions}</p>
+                            <p className="text-sm text-white/40">{item.frame.label}</p>
+                            <p className="text-amber-400 font-semibold mt-2">${item.total}</p>
+                          </div>
+                          <button
+                            onClick={() => removeFromCart(item.id)}
+                            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-red-500/20 hover:text-red-400 transition-all self-start flex-shrink-0"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Shipping Step */}
+              {checkoutStep === 'shipping' && (
+                <form onSubmit={handleShippingSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-white/60 mb-2">Full Name *</label>
+                    <input
+                      type="text"
+                      value={shippingInfo.name}
+                      onChange={(e) => setShippingInfo(prev => ({ ...prev, name: e.target.value }))}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none transition-colors"
+                      placeholder="John Doe"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/60 mb-2">Email *</label>
+                    <input
+                      type="email"
+                      value={shippingInfo.email}
+                      onChange={(e) => setShippingInfo(prev => ({ ...prev, email: e.target.value }))}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none transition-colors"
+                      placeholder="john@example.com"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/60 mb-2">Address Line 1 *</label>
+                    <input
+                      type="text"
+                      value={shippingInfo.line1}
+                      onChange={(e) => setShippingInfo(prev => ({ ...prev, line1: e.target.value }))}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none transition-colors"
+                      placeholder="123 Main Street"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-white/60 mb-2">Address Line 2</label>
+                    <input
+                      type="text"
+                      value={shippingInfo.line2}
+                      onChange={(e) => setShippingInfo(prev => ({ ...prev, line2: e.target.value }))}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none transition-colors"
+                      placeholder="Apt 4B (optional)"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-white/60 mb-2">City *</label>
+                      <input
+                        type="text"
+                        value={shippingInfo.city}
+                        onChange={(e) => setShippingInfo(prev => ({ ...prev, city: e.target.value }))}
+                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none transition-colors"
+                        placeholder="New York"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-white/60 mb-2">State *</label>
+                      <input
+                        type="text"
+                        value={shippingInfo.state}
+                        onChange={(e) => setShippingInfo(prev => ({ ...prev, state: e.target.value }))}
+                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none transition-colors"
+                        placeholder="NY"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-white/60 mb-2">Postal Code *</label>
+                      <input
+                        type="text"
+                        value={shippingInfo.postalCode}
+                        onChange={(e) => setShippingInfo(prev => ({ ...prev, postalCode: e.target.value }))}
+                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none transition-colors"
+                        placeholder="10001"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-white/60 mb-2">Country *</label>
+                      <select
+                        value={shippingInfo.country}
+                        onChange={(e) => setShippingInfo(prev => ({ ...prev, country: e.target.value }))}
+                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-amber-500/50 focus:outline-none transition-colors"
+                      >
+                        <option value="US">United States</option>
+                        <option value="CA">Canada</option>
+                        <option value="GB">United Kingdom</option>
+                        <option value="AU">Australia</option>
+                        <option value="DE">Germany</option>
+                        <option value="FR">France</option>
+                        <option value="IT">Italy</option>
+                        <option value="ES">Spain</option>
+                        <option value="NL">Netherlands</option>
+                        <option value="JP">Japan</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Order Summary */}
+                  <div className="mt-6 p-4 rounded-xl bg-white/5 border border-white/10">
+                    <h4 className="font-medium mb-3">Order Summary</h4>
+                    <div className="space-y-2 text-sm">
+                      {cart.map(item => (
+                        <div key={item.id} className="flex justify-between text-white/60">
+                          <span className="truncate flex-1 mr-2">{item.artwork.title}</span>
+                          <span>${item.total}</span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between pt-2 border-t border-white/10 font-semibold">
+                        <span>Total</span>
+                        <span className="text-amber-400">${cartTotal}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-white/40 mt-4">
+                    Museum-quality giclée prints on archival fine art canvas. Printed and shipped by our fulfillment partner.
+                  </p>
+                </form>
+              )}
+
+              {/* Processing Step */}
+              {checkoutStep === 'processing' && (
+                <div className="h-full flex flex-col items-center justify-center text-center">
+                  <div className="w-20 h-20 rounded-full bg-amber-500/20 flex items-center justify-center mb-6 animate-pulse">
+                    <svg className="w-10 h-10 text-amber-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  </div>
+                  <p className="text-white/60 mb-2">Processing your order...</p>
+                  <p className="text-sm text-white/40">Please wait while we connect with our print partner</p>
+                </div>
+              )}
+
+              {/* Complete Step */}
+              {checkoutStep === 'complete' && (
+                <div className="h-full flex flex-col items-center justify-center text-center">
+                  {orderResult?.success ? (
+                    <>
+                      <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center mb-6">
+                        <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <h4 className="text-xl font-semibold mb-2">Order Confirmed!</h4>
+                      <p className="text-white/60 mb-4">Order ID: {orderResult.orderId}</p>
+                      <p className="text-sm text-white/40 mb-6">
+                        {orderResult.message || 'Your artwork will be printed and shipped soon. Check your email for tracking updates.'}
+                      </p>
+                      <button
+                        onClick={() => { setShowCart(false); resetCheckout(); }}
+                        className="px-6 py-3 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] font-semibold hover:shadow-xl hover:shadow-amber-500/25 transition-all"
+                      >
+                        Continue Browsing
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center mb-6">
+                        <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </div>
+                      <h4 className="text-xl font-semibold mb-2">Order Failed</h4>
+                      <p className="text-white/60 mb-6">{orderResult?.error || 'Something went wrong. Please try again.'}</p>
+                      <button
+                        onClick={() => setCheckoutStep('shipping')}
+                        className="px-6 py-3 rounded-full bg-white/10 text-white font-medium hover:bg-white/20 transition-all"
+                      >
+                        Try Again
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
 
-            {cart.length > 0 && (
+            {/* Footer buttons */}
+            {checkoutStep === 'cart' && cart.length > 0 && (
               <div className="p-6 border-t border-white/5 bg-[#0f0f11]">
                 <div className="space-y-3 mb-6">
                   <div className="flex justify-between text-white/50">
@@ -4169,6 +4753,24 @@ export default function ArtGallery() {
                   className="w-full py-3 mt-3 rounded-xl text-white/40 text-sm hover:text-white/60 transition-colors"
                 >
                   Clear Cart
+                </button>
+              </div>
+            )}
+
+            {checkoutStep === 'shipping' && (
+              <div className="p-6 border-t border-white/5 bg-[#0f0f11]">
+                <button
+                  onClick={handleShippingSubmit}
+                  disabled={isProcessingOrder}
+                  className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] font-semibold text-lg hover:shadow-xl hover:shadow-amber-500/25 transition-all duration-300 disabled:opacity-50"
+                >
+                  Place Order — ${cartTotal}
+                </button>
+                <button
+                  onClick={() => setCheckoutStep('cart')}
+                  className="w-full py-3 mt-3 rounded-xl text-white/40 text-sm hover:text-white/60 transition-colors"
+                >
+                  Back to Cart
                 </button>
               </div>
             )}
