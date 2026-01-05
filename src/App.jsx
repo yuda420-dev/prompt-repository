@@ -4,6 +4,7 @@ import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSe
 import { arrayMove, SortableContext, useSortable, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { createProdigiOrder, isProdigiConfigured } from './services/prodigi';
+import { generateAIDescription, isAIConfigured } from './services/ai';
 import * as analytics from './services/analytics';
 
 const defaultArtworks = [
@@ -323,6 +324,7 @@ export default function ArtGallery() {
   const [toast, setToast] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingArt, setEditingArt] = useState(null);
+  const [generatingAIDescription, setGeneratingAIDescription] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState(null);
   const [fullscreenIndex, setFullscreenIndex] = useState(0); // For sliding in fullscreen
@@ -4568,24 +4570,74 @@ export default function ArtGallery() {
                     {/* AI Generate Description Button */}
                     <button
                       type="button"
-                      onClick={() => {
-                        // Generate a new description based on title, style, and categories
-                        const answers = {
-                          mood: moodOptions[Math.floor(Math.random() * moodOptions.length)],
-                          theme: themeOptions[Math.floor(Math.random() * themeOptions.length)],
-                          style: editingArt.style || styleOptions[Math.floor(Math.random() * styleOptions.length)],
-                          inspiration: editingArt.title || 'artistic vision',
-                          message: editingArt.categories?.[0] || editingArt.category || 'abstract'
-                        };
-                        const newDesc = generateDescription(answers);
-                        setEditingArt({ ...editingArt, description: newDesc });
+                      disabled={generatingAIDescription}
+                      onClick={async () => {
+                        if (!editingArt.image) {
+                          showToastMessage('No image available to analyze', 'error');
+                          return;
+                        }
+
+                        // Check if AI is configured
+                        if (!isAIConfigured()) {
+                          // Fallback to template-based generation
+                          const answers = {
+                            mood: moodOptions[Math.floor(Math.random() * moodOptions.length)],
+                            theme: themeOptions[Math.floor(Math.random() * themeOptions.length)],
+                            style: editingArt.style || styleOptions[Math.floor(Math.random() * styleOptions.length)],
+                            inspiration: editingArt.title || 'artistic vision',
+                            message: editingArt.categories?.[0] || editingArt.category || 'abstract'
+                          };
+                          const newDesc = generateDescription(answers);
+                          setEditingArt({ ...editingArt, description: newDesc });
+                          showToastMessage('Generated description (AI not configured)', 'info');
+                          return;
+                        }
+
+                        // Use AI vision to analyze the actual image
+                        setGeneratingAIDescription(true);
+                        try {
+                          const description = await generateAIDescription(editingArt.image, {
+                            title: editingArt.title,
+                            category: editingArt.category,
+                            artist: editingArt.artist
+                          });
+                          setEditingArt({ ...editingArt, description });
+                          showToastMessage('AI description generated!', 'success');
+                        } catch (error) {
+                          console.error('AI description error:', error);
+                          showToastMessage('AI generation failed: ' + error.message, 'error');
+                          // Fallback to template
+                          const answers = {
+                            mood: moodOptions[Math.floor(Math.random() * moodOptions.length)],
+                            theme: themeOptions[Math.floor(Math.random() * themeOptions.length)],
+                            style: editingArt.style || styleOptions[Math.floor(Math.random() * styleOptions.length)],
+                            inspiration: editingArt.title || 'artistic vision',
+                            message: editingArt.categories?.[0] || editingArt.category || 'abstract'
+                          };
+                          const newDesc = generateDescription(answers);
+                          setEditingArt({ ...editingArt, description: newDesc });
+                        } finally {
+                          setGeneratingAIDescription(false);
+                        }
                       }}
-                      className="mt-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 text-sm font-medium hover:from-purple-500/30 hover:to-pink-500/30 transition-all flex items-center gap-2"
+                      className={`mt-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 text-sm font-medium hover:from-purple-500/30 hover:to-pink-500/30 transition-all flex items-center gap-2 ${generatingAIDescription ? 'opacity-50 cursor-wait' : ''}`}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                      </svg>
-                      Generate AI Description
+                      {generatingAIDescription ? (
+                        <>
+                          <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Analyzing artwork...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                          </svg>
+                          Generate AI Description
+                        </>
+                      )}
                     </button>
                   </div>
 
