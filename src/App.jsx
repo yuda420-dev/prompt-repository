@@ -303,6 +303,7 @@ export default function ArtGallery() {
   const [artworks, setArtworks] = useState(defaultArtworks);
   const [filter, setFilter] = useState('all');
   const [sortBy, setSortBy] = useState('curated'); // curated (admin order), newest, oldest, title
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedArt, setSelectedArt] = useState(null);
   const [selectedSize, setSelectedSize] = useState(1);
   const [selectedFrame, setSelectedFrame] = useState(1);
@@ -1255,10 +1256,22 @@ export default function ArtGallery() {
 
   const visibleArtworks = getVisibleArtworks();
   const filteredArt = (() => {
-    if (filter === 'all') return visibleArtworks;
-    if (filter === 'favorites') return visibleArtworks.filter(a => favorites.includes(a.id));
-    if (filter === 'my-artworks') return visibleArtworks.filter(a => a.userId === user?.id);
-    return visibleArtworks.filter(a => a.category === filter);
+    let result = visibleArtworks;
+    if (filter === 'favorites') result = result.filter(a => favorites.includes(a.id));
+    else if (filter === 'my-artworks') result = result.filter(a => a.userId === user?.id);
+    else if (filter !== 'all') result = result.filter(a => a.category === filter);
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter(a =>
+        a.title?.toLowerCase().includes(q) ||
+        a.artist?.toLowerCase().includes(q) ||
+        a.description?.toLowerCase().includes(q) ||
+        a.category?.toLowerCase().includes(q) ||
+        a.style?.toLowerCase().includes(q) ||
+        a.seriesName?.toLowerCase().includes(q)
+      );
+    }
+    return result;
   })();
   const hasMoreArtworks = !user && artworks.length > PREVIEW_LIMIT;
 
@@ -2396,6 +2409,31 @@ export default function ArtGallery() {
       {/* Filters & Sorting */}
       <nav ref={galleryRef} className="px-6 lg:px-8 pb-12 scroll-mt-24">
         <div className="max-w-7xl mx-auto">
+          {/* Search */}
+          <div className="mb-4">
+            <div className="relative max-w-md">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search artworks…"
+                className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-9 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/25 focus:bg-white/8 transition-all"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          </div>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             {/* Category filters */}
             <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
@@ -2459,7 +2497,7 @@ export default function ArtGallery() {
                   </div>
                   <h3 className="text-lg font-medium text-white/70 mb-2">No artworks found</h3>
                   <p className="text-sm text-white/40 max-w-sm">
-                    {filter !== 'all' ? 'Try selecting a different category or clearing filters.' : 'Upload your first artwork to get started!'}
+                    {searchQuery ? 'No artworks match your search. Try a different term.' : filter !== 'all' ? 'Try selecting a different category or clearing filters.' : 'Upload your first artwork to get started!'}
                   </p>
                 </div>
               ) : (
